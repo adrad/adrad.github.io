@@ -1,0 +1,12 @@
+Help on:
+
+	*SHUTDOWN
+
+	This function shutsdown the game.
+
+example:
+:*shutdown
+
+### Game shutdown in 1:20 minutes.
+
+

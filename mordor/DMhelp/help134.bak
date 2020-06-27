@@ -1,0 +1,15 @@
+
+Help on:
+
+	*GCAST [spell]
+
+	This function will globally cast a spell.  This function is 
+limited to non-offensive spells.
+
+example:
+:*gcast protection
+
+You cast protection on everyone.
+Someone casts protection on everyone.
+
+ 

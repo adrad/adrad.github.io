@@ -1,0 +1,11 @@
+Help on:
+
+	*RM
+
+	This function will return the room number of your parent room.
+
+example:
+:*rm
+Room #42
+
+

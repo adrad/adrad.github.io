@@ -1,0 +1,11 @@
+
+Help on:
+
+	*PREPEND [-sn] [text]
+
+	This function will prepend [text] to the parent room 
+description.  If -s is set then it will prepend to the short 
+description.  If -n is set then it will prepend without a new line.  
+NOTE:  This function does not reformat the text.
+
+ 

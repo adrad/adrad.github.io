@@ -1,0 +1,12 @@
+
+Help on:
+
+	*REPLACE [-sD] [str1] [str2]
+
+	This function will search and replace [str1] for [str2].  Due to 
+the parsing of [str1] it can only be on word long, however [str2] can be 
+any length.  If the -s flag is set, the replace will be done in 
+the short description only.  If the -D flag is set then [str2] is 
+ommitted and [str1] will be deleted.
+	NOTE:  This function does not reformat the text after replacement.
+

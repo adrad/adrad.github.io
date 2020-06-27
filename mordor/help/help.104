@@ -1,0 +1,18 @@
+Help on DM commmand:
+
+	*save [r|o|c] [name] [index]
+
+  This function allows DMs to save rooms, objects, or creatures
+to the database.  The name and index are required to save objects and
+creatures.
+
+example:
+:*save c elf 4
+Creature #4 might already exist.
+Creature #4 updated.
+:*save o sword 113
+Object might already exist.
+Object #113 updated.
+:*save r
+Room saved.
+ 

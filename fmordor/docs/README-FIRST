@@ -1,0 +1,54 @@
+
+		Welcome to Mordor 6.0
+
+  This package is a source distribution of Mordor 6.0. The
+database provided is Oceancrest, written by Kevin Kawado and Roy 
+Wilson.  Packages can be gotten from our home site at:
+http://mordor.nazgul.com/. 
+  The code for this binary package was created by Brooke Paul, Paul
+Telford, and a team of developers from all over the Internet.  Mordor is
+based upon Quest for Mordor v2.2 by Brett J. Vickers. Please read the
+COPYRIGHT and DISLAIMER for information about its use and distribution.
+
+----------------------------------------------------------------------------
+SYSTEM REQUIREMENTS:
+	5M RAM
+	about 25M HD space
+----------------------------------------------------------------------------
+
+DATABASE:
+  You are encouraged to create your own scenarios, with or without
+the portions provided.
+  The editor provides an easy way to create your world.  Just read the
+documentaion provided in the help and docs directories, and you will be on
+your way.
+  
+  When you first start up the game you will want to log in and
+create the DM characters (telnet localhost 4040).  There are a limited
+number of DMs and those have been defined at compilation.  You can change 
+the DM names by editing the bin/mordor.cf file and using the *game command
+to reload your changes.
+  You may create as many caretakers as you wish by setting their class to
+12.  The DM names are set in the bin/mordor.cf file and default to the
+following: 
+
+	Tesseract
+	Erech
+	Azog
+	Garth
+	Alice
+	Oligarchy
+	Gandalf
+
+  These are the only characters that will have FULL access to the DM
+commands.  Caretakers can access around 70% of all DM commands. 
+  If you are planning on running Mordor on a long-term basis, please
+be sure to send in the registration form so we can let you know about 
+updates and bug patches.
+	
+	When you get this running on your system, please email a note to
+mordor@mordor.nazgul.com.  If you have questions, post them to
+rec.games.mud.admin, or contribute to our online documentation at
+http://mordor.nazgul.com/
+
+	Good luck and we hope you enjoy Mordor!

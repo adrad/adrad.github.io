@@ -1,0 +1,5 @@
+Stun:
+This spell renders its target unable to attack for several rounds
+MP cost: 10
+Syntax:
+cast stun <target>

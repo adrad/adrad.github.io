@@ -1,0 +1,15 @@
+Help on:
+
+	*RELOAD
+
+	This function will reload the parent room from disk.  This is 
+necessary when editing has been done off line and you wish to implement 
+changes made.  If editing is done off line and the room is not reloaded 
+into memory, there is a chance that the off line edits will not take 
+effect. 
+
+example:
+:*reload
+Ok.
+
+

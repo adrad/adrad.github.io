@@ -1,0 +1,18 @@
+Help on DM command:
+
+	*add [r|c|o] [#]
+
+  This creates a new room, creature or object.  A number must be 
+specified when creating a new room, while creatures and objects will 
+arrive in your room or inventory, respectively.  Rooms are automatically 
+added to the database, whereas creatures and object must be saved after 
+completion using the *save command.
+
+example:
+:*add r 4123
+Room #4123 created
+:*add c
+A clay form just arrived.
+Creature created.
+:*add o
+Generic item added to your inventory.

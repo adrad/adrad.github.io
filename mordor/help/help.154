@@ -1,0 +1,11 @@
+HELP ON:
+	*advance <player> <level>
+
+This command allows DM's to advance a player's level.  In doing so it
+will properly adjust HP, MP & stats.
+
+Example:
+
+: *advance darwin 12
+Darwin has been advanced to level 12.
+
