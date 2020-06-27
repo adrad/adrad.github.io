@@ -71,9 +71,9 @@ SAVEONDROP=No
 ;Turn on Mud Sound Protocol
 MudSound=No
 ;The Start Room is the room number that the player will start in
-StartRoom=500
+StartRoom=50
 ;The Death Room is the room number that the player go to when he dies
-DeathRoom=500
+DeathRoom=50
 ; The cost to use the 'shop' command and create a player shop
 ShopCost=10000
 ;Guild rooms are where players go when they cast recall
