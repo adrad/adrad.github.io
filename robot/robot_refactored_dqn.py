@@ -36,11 +36,11 @@ from keras.models import load_model
 # from keras.utils import to_categorical
 # from PyQt5.QtWidgets import QApplication, QWidget
 import pickle
+import time
 
 
 # import math
 # import random
-# import time
 
 class Modelingthread(QtCore.QThread):
 	def __init__(self, parent):  # allow passing parent into the eventthread object
@@ -908,12 +908,17 @@ class MudBotClient(QtWidgets.QWidget):
 		self.port = 4000
 
 		# make a QT socket
-		self.tcpSocket = rr = QtNetwork.QTcpSocket()
+		self.tcpSocket = QtNetwork.QTcpSocket()
 		# telnet
 		self.tn = telnetlib.Telnet(self.HOST, self.port)
 		# get the socket from telnetlib and feed it to the QtNetwork QTCSocket object!
 		self.tcpSocket.setSocketDescriptor(self.tn.sock.fileno())
 		self.login()
+
+	def closeSockets(self):
+		# close the socket
+		self.tn.close()
+		#self.tcpSocket.abort()
 
 
 	def login(self):
@@ -937,11 +942,14 @@ class MudBotClient(QtWidgets.QWidget):
 		btext = text.encode('utf-8')
 
 		self.tcpSocket.write(QtCore.QByteArray(btext))
+		self.closeSockets()
 
 	def reset_player_file(self):
 		#log the player out
+		time.sleep(1)
+		print('logging out')
 		self.logout()
-
+		time.sleep(1)
 		src_dir = os.getcwd()
 		filedir = src_dir + "\\..\\mordor\\player\\"
 		backupfile = 'Tester_backup'
@@ -954,7 +962,13 @@ class MudBotClient(QtWidgets.QWidget):
 		print('Tester loaded from backup')
 
 		#log the player back in
-		self.login()
+		#print('reconnecting socket')
+		#time.sleep(2)
+		#reconnect
+		print('logging in')
+		self.iniSockets()
+
+
 
 	def initUI(self):
 		# initialize layouts
@@ -1363,8 +1377,8 @@ class MudBotClient(QtWidgets.QWidget):
 		# hardcode escape from limbo
 		if newstate.room_name == 'Limbo':
 			#after dying reset the player file (deals with de-leveling)
-			self.reset_player_file()
 			self.thread.action_from_parent = 'go green'
+			self.reset_player_file()
 		if newstate.room_name == 'The Tree of Life':
 			self.thread.action_from_parent = 'go down'
 		start_indicator = "I don"
