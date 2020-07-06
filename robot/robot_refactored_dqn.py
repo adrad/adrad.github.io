@@ -920,6 +920,10 @@ class MudBotClient(QtWidgets.QWidget):
 		self.tn.close()
 		#self.tcpSocket.abort()
 
+	def reconnect(self):
+		self.tn = telnetlib.Telnet(self.HOST, self.port)
+		self.tcpSocket.setSocketDescriptor(self.tn.sock.fileno())
+		self.login()
 
 	def login(self):
 		# auto login, set flags (clear long)
@@ -944,12 +948,7 @@ class MudBotClient(QtWidgets.QWidget):
 		self.tcpSocket.write(QtCore.QByteArray(btext))
 		self.closeSockets()
 
-	def reset_player_file(self):
-		#log the player out
-		time.sleep(1)
-		print('logging out')
-		self.logout()
-		time.sleep(1)
+	def copy_backup_file(self):
 		src_dir = os.getcwd()
 		filedir = src_dir + "\\..\\mordor\\player\\"
 		backupfile = 'Tester_backup'
@@ -961,12 +960,20 @@ class MudBotClient(QtWidgets.QWidget):
 		shutil.copyfile(fullpath, copypath)
 		print('Tester loaded from backup')
 
+	def reset_player_file(self):
+		#log the player out
+		#time.sleep(1)
+		print('logging out')
+		self.logout()
+		#need delay to ensure file not in use
+		time.sleep(1)
+		self.copy_backup_file()
 		#log the player back in
 		#print('reconnecting socket')
 		#time.sleep(2)
 		#reconnect
 		print('logging in')
-		self.iniSockets()
+		self.reconnect()
 
 
 
@@ -1377,8 +1384,13 @@ class MudBotClient(QtWidgets.QWidget):
 		# hardcode escape from limbo
 		if newstate.room_name == 'Limbo':
 			#after dying reset the player file (deals with de-leveling)
-			self.thread.action_from_parent = 'go green'
+			#write to socket immediately
+			text = 'go green\r\n'
+			btext = text.encode('utf-8')
+			self.tcpSocket.write(QtCore.QByteArray(btext))
+
 			self.reset_player_file()
+
 		if newstate.room_name == 'The Tree of Life':
 			self.thread.action_from_parent = 'go down'
 		start_indicator = "I don"
