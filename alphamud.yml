@@ -16,9 +16,9 @@ dependencies:
   - boto3=1.13.2=pyh9f0ad1d_0
   - botocore=1.16.2=pyh9f0ad1d_0
   - brotlipy=0.7.0=py36h779f372_1000
-  - ca-certificates=2020.1.1=0
+  - ca-certificates=2020.6.24=0
   - cachetools=3.1.1=py_0
-  - certifi=2020.4.5.1=py36_0
+  - certifi=2020.6.20=py36_0
   - cffi=1.14.0=py36ha419a9e_0
   - chardet=3.0.4=py36_1003
   - click=7.1.2=pyh9f0ad1d_0
@@ -106,6 +106,7 @@ dependencies:
   - pyopenssl=19.1.0=py_1
   - pyparsing=2.4.7=py_0
   - pyqt=5.9.2=py36h6538335_2
+  - pyqtgraph=0.10.0=py36h28b3542_3
   - pyreadline=2.1=py36_1
   - pyrsistent=0.16.0=py36he774522_0
   - pysocks=1.7.1=py36h9f0ad1d_1

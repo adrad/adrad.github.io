@@ -4,7 +4,11 @@
 ####
 
 import sys
+import os
+import shutil
 from PyQt5 import QtCore, QtGui, QtWidgets, QtNetwork
+from pyqtgraph import PlotWidget, plot
+import pyqtgraph as pg
 import telnetlib
 from datetime import datetime
 from threading import Thread
@@ -509,15 +513,15 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def initialize_encoders(self):
 		# initialize dictionaries
-		# self.objmondict = ['rabbit', 'rabbits', 'raccoon', 'raccoons', 'book', 'gold']
-		self.objmondict = ['golem', 'golems', 'gold']
-		# self.exitdict = ['north', 'east', 'south', 'west']
-		self.exitdict = ['none']
-		# self.room_name_dict = ['Limbo', 'Love', 'Brownhaven', 'Alley', 'Pawn', 'Path ', 'Petting']
-		self.room_name_dict = ['Limbo', 'Love']
-		# self.actiondict = ['wait', 'north', 'east', 'south', 'west', 'killrabbit', 'killraccoon', 'look']
+		self.objmondict = ['rabbit', 'rabbits', 'raccoon', 'raccoons', 'book', 'gold']
+		#self.objmondict = ['golem', 'golems', 'gold']
+		self.exitdict = ['north', 'east', 'south', 'west']
+		#self.exitdict = ['none']
+		self.room_name_dict = ['Limbo', 'Love', 'Brownhaven', 'Alley', 'Pawn', 'Path ', 'Petting']
+		#self.room_name_dict = ['Limbo', 'Love']
+		self.actiondict = ['none', 'north', 'east', 'south', 'west', 'killrabbit', 'killraccoon', 'look']
 		# self.actiondict = ['north', 'east', 'south', 'west', 'killrabbit', 'look']
-		self.actiondict = ['none','killgolem', 'look']
+		#self.actiondict = ['none','killgolem', 'look']
 
 		# initialize tokenizations
 		self.objmon_tokenizer = Tokenizer(num_words=len(self.objmondict) + 1)
@@ -533,10 +537,14 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def initialize_self(self):
 		self.maxhp = 125
+		self.oldEXP = 0
+		self.plot_interval = 10
+		self.step_counter = 0
 	def initialize_model(self):
 		# initialize_model
 		self.memory = deque(maxlen=10000)
 		self.epsilon = 1  # threshold for action to be random, will decay to .05
+		self.epsilon_array=[self.epsilon]
 		self.training_allowed = True
 		# self.training_allowed=False
 		self.epsilon_min = 0.05
@@ -819,7 +827,7 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def generate_new_action(self):
 		epsilon = self.epsilon
-		print(epsilon)
+
 		if epsilon == 1 or (epsilon > 0 and 1 > epsilon > random.random()):
 			action = random.choice(self.actiondict)
 			self.last_action = [action]
@@ -907,6 +915,7 @@ class MudBotClient(QtWidgets.QWidget):
 		self.tcpSocket.setSocketDescriptor(self.tn.sock.fileno())
 		self.login()
 
+
 	def login(self):
 		# auto login, set flags (clear long)
 		# add b before strings to turn them into bytes
@@ -916,19 +925,50 @@ class MudBotClient(QtWidgets.QWidget):
 
 		self.tcpSocket.write(QtCore.QByteArray(btext))
 		#reset hp when starting out
-		text = 'bleed\r\n'
+		#text = 'bleed\r\n'
+		#btext = text.encode('utf-8')
+		#self.tcpSocket.write(QtCore.QByteArray(btext))
+
+	def logout(self):
+		# auto login, set flags (clear long)
+		# add b before strings to turn them into bytes
+		# txt = b'test' + b'\n' + b'asdfasdf' + b'\r\n' #+ 'clear long\r\n' + 'set auto' + '\r\n'
+		text = '\nquit\r\n'
 		btext = text.encode('utf-8')
+
 		self.tcpSocket.write(QtCore.QByteArray(btext))
+
+	def reset_player_file(self):
+		#log the player out
+		self.logout()
+
+		src_dir = os.getcwd()
+		filedir = src_dir + "\\..\\mordor\\player\\"
+		backupfile = 'Tester_backup'
+		copyfile = 'Tester'
+
+		fullpath = filedir + backupfile
+		copypath = filedir + copyfile
+
+		shutil.copyfile(fullpath, copypath)
+		print('Tester loaded from backup')
+
+		#log the player back in
+		self.login()
 
 	def initUI(self):
 		# initialize layouts
-		self.lay = QtWidgets.QVBoxLayout(self)  # vertical box must come first
+		self.hlay = QtWidgets.QHBoxLayout(self)  # horizontal layout to hold main game and plots
+		self.lay = QtWidgets.QVBoxLayout(self) #this vertical box will hold main game items
+		self.graphics_lay = QtWidgets.QVBoxLayout(self)  # this vertical box will hold main game items
 		self.exitBox = QtWidgets.QHBoxLayout(self)
 		self.mapCmdsBox = QtWidgets.QHBoxLayout(self)
 		self.action_box = QtWidgets.QHBoxLayout(self)
 
 		# create widget/box to show output from mud
 		self.display = QtWidgets.QTextBrowser()
+		#QSizePolicy takes two intgers (horizontal tstretchfactor, verticalstretchfactor) 0,255
+		#self.display.setSizePolicy(QtWidgets.QSizePolicy(1, 10))
 		# now connect the output
 
 		self.tcpSocket.readyRead.connect(self.tcpSocketReadyReadEmitted)
@@ -979,13 +1019,29 @@ class MudBotClient(QtWidgets.QWidget):
 		self.hpmp = QtWidgets.QStatusBar()
 		self.hpmp.showMessage('Hp:    Mp:    Xp:')
 
-		# widget for monsters in room
-		self.roomMonsters = QtWidgets.QStatusBar()
-		self.roomMonsters.showMessage('monsters: ')
+		# widget for epsilon plot
+		self.epsilon_graph = pg.PlotWidget()
+		#self.roomMonsters.showMessage('Epsilon vs Steps:')
+		x = [0]
+		y = [0]
+		self.epsilon_graph.setBackground('w')
+		self.epsilon_graph.setTitle('Epsilon')
+		pen = pg.mkPen(color=(0, 0, 0))
+		self.epsilon_graph.plot(x,y,pen=pen)
+		# QSizePolicy takes two intgers (horizontal tstretchfactor, verticalstretchfactor) 0,255
+		#self.epsilon_graph.setSizePolicy(QtWidgets.QSizePolicy(1,1))
 
-		# widget for items in room
-		self.roomItems = QtWidgets.QStatusBar()
-		self.roomItems.showMessage('items: ')
+
+		# widget for reward plot
+		self.reward_graph = pg.PlotWidget()
+		# self.roomMonsters.showMessage('Epsilon vs Steps:')
+		rwd = [0]
+		steps = [0]
+		self.reward_graph.setBackground('w')
+		self.reward_graph.setTitle('Reward')
+		pen = pg.mkPen(color=(0, 0, 0))
+		self.reward_graph.plot(steps, rwd, pen=pen)
+		#self.reward_graph.setSizePolicy(QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, 200))
 
 		# finalize layout:
 
@@ -996,16 +1052,21 @@ class MudBotClient(QtWidgets.QWidget):
 		self.lay.insertLayout(4, self.mapCmdsBox)
 		self.lay.insertLayout(4, self.action_box)
 
-		self.lay.addWidget(self.roomMonsters)
-		self.lay.addWidget(self.roomItems)
+		#self.lay.addWidget(self.epsilon_graph)
+		#self.lay.addWidget(self.reward_graph)
 		self.lay.addWidget(self.hpmp)
 		self.lay.addWidget(self.display)
 		self.lay.addWidget(self.lineInput)
 
+		#add graphs to graphics_layout
+		self.graphics_lay.addWidget(self.epsilon_graph)
+		self.graphics_lay.addWidget(self.reward_graph)
 		# self.lay.addLayout(self.exitBox)
 
+		self.hlay.insertLayout(1,self.lay)
+		self.hlay.insertLayout(2,self.graphics_lay)
 		# setup window size and icon
-		self.setGeometry(100, 100, 600, 900)
+		self.setGeometry(100, 100, 1200, 900)
 		self.setWindowTitle('Mud Client Botter')
 		self.setWindowIcon(QtGui.QIcon('Robot-icon.png'))
 
@@ -1101,6 +1162,8 @@ class MudBotClient(QtWidgets.QWidget):
 		self.reward_array_history = pickle.load(open("Ydata.p", "rb"))
 		self.memory = pickle.load(open("memory.p", "rb"))
 
+
+
 	def save_model(self):
 		# save model and architecture to single file
 		self.model.save("model.h5")
@@ -1194,13 +1257,14 @@ class MudBotClient(QtWidgets.QWidget):
 			hp, mp = self.parse_hpmpstr(hpmpstring)
 			newstate.hp = hp
 			newstate.mp = mp
+			'''
 			if newstate.hp < 50:
 				self.thread.action_from_parent = 'jump'
 				newstate.reward = self.reward
 			elif newstate.hp < 30:
 				self.thread.action_from_parent = 'bleed'
 				newstate.reward = self.reward
-
+			'''
 		status, delaystr = self.getdelaystr(txt)
 		if status == True:
 			newstate.delaystr = delaystr
@@ -1271,7 +1335,7 @@ class MudBotClient(QtWidgets.QWidget):
 
 		status, killedstr = self.get_killed_penalty(txt)
 		if status == True:
-			self.reward = self.reward - 1000  # big negative penalty for dying
+			self.reward = self.reward - 125  #negative penalty for dying
 			newstate.reward = self.reward
 
 		# give nice bonus for ticking
@@ -1298,6 +1362,8 @@ class MudBotClient(QtWidgets.QWidget):
 
 		# hardcode escape from limbo
 		if newstate.room_name == 'Limbo':
+			#after dying reset the player file (deals with de-leveling)
+			self.reset_player_file()
 			self.thread.action_from_parent = 'go green'
 		if newstate.room_name == 'The Tree of Life':
 			self.thread.action_from_parent = 'go down'
@@ -1444,6 +1510,20 @@ class MudBotClient(QtWidgets.QWidget):
 			print('didnt find the text')
 		return status, pullstring
 
+	def decode_reward_array_history(self,reward_array_history):
+		tot_reward=np.sum(np.array(reward_array_history),axis=1)
+		return tot_reward
+
+	def plot_reward(self,reward_array_history):
+		decoded_reward = self.decode_reward_array_history(reward_array_history)
+		steps = np.arange(0,len(decoded_reward))
+		pen = pg.mkPen(color=(0, 0, 0))
+		self.reward_graph.plot(steps, decoded_reward, pen=pen)
+	def plot_epsilon(self,epsilon_array):
+		steps = np.arange(0,len(epsilon_array))
+		pen = pg.mkPen(color=(0, 0, 0))
+		self.epsilon_graph.plot(steps, epsilon_array, pen=pen)
+
 	def tcpSocketReadyReadEmitted(self):
 		try:
 			socket_data = self.tcpSocket.readAll()
@@ -1460,6 +1540,13 @@ class MudBotClient(QtWidgets.QWidget):
 			self.state_array = self.encode_state(self.world_state)
 			self.reward_array = self.encode_rewards(self.world_state)
 			self.reward_array_history.append(self.reward_array)
+			self.epsilon_array.append(self.epsilon)
+			#plot every n steps
+
+			if self.step_counter % self.plot_interval == 0:
+				self.plot_reward(self.reward_array_history)
+				self.plot_epsilon(self.epsilon_array)
+			self.step_counter +=1
 			# self.objmondict = ['rabbit', 'rabbits', 'raccoon', 'raccoons', 'book', 'gold']
 			# self.exitdict = ['north', 'east', 'south', 'west']
 			# self.room_name_dict = ['Limbo', 'Love', 'Brownhaven', 'Alley', 'Pawn', 'Path ', 'Petting']
@@ -1469,7 +1556,7 @@ class MudBotClient(QtWidgets.QWidget):
 			# print(self.state_array)
 			# print(len(self.state_array))
 			self.state_array_history.append(self.state_array)
-			self.reward_history.append(np.array([self.reward]))  # update reward too. Note covnersion to np.array
+			self.reward_history.append(np.array([self.reward]))  # update reward too. Note conversion to np.array
 			#print('world state is', self.state_array)
 			#print('action was', self.last_action, 'reward', self.reward)
 			# print(' [_. W. N. E. S. W. K. k. L.]')
