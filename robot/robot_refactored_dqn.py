@@ -52,7 +52,7 @@ class Modelingthread(QtCore.QThread):
 	def create_model(self):
 		# https://towardsdatascience.com/reinforcement-learning-w-keras-openai-dqns-1eed3a5338c
 		model = Sequential()
-		multiplier = 16
+		multiplier = self.state_multiplier
 		myinputdim = len(self.state_array) * multiplier  # state array includes actions
 		myoutputdim = len(self.actiondict) + 1  # outputs are actions, add one extra for unrecognized actions
 		print('input dims: ', myinputdim)
@@ -197,13 +197,13 @@ class Modelingthread(QtCore.QThread):
 		# print('train model function called')
 		# newX=self.reshape_x(self.state_array_history)
 		# newX, newY = self.reshape_xy_and_combine(self.state_array_history,self.reward_history, 16)
-		newX = self.reshape_x_and_combine(self.state_array_history, 16)
+		newX = self.reshape_x_and_combine(self.state_array_history, self.state_multiplier)
 		# careful changing multiplier from 16
 
 		try:
 
 			y = [self.reward_array_history]
-			newY = self.combine_y_array(y, 16)
+			newY = self.combine_y_array(y, self.state_multiplier)
 
 		except:
 			print('something went wrong with y array in training')
@@ -239,7 +239,7 @@ class Modelingthread(QtCore.QThread):
 		# print('trying to get action from model')
 		# get the latest states
 		# newX = self.reshape_x_and_combine(self.state_array_history, 16)
-		inputx = self.reshape_x_and_combine(self.state_array_history[-16:], 16)  # careful changing multiplier from 16
+		inputx = self.reshape_x_and_combine(self.state_array_history[-self.state_multiplier:], self.state_multiplier)  # careful changing multiplier from 16
 
 		# input = newx[-1].reshape(1, 352) #the latest input is all thats needed , drop rest
 		# note we had to reshape the above inptu to use it, needs to be shape 1,352.
@@ -479,6 +479,7 @@ class Worldstate():
 		self.hostile_str = ''
 		self.damage_str = ''
 		self.reward = 0
+		self.last_action = 'none'
 
 	def state_to_string(self):
 		selfstrings = []
@@ -514,14 +515,15 @@ class MudBotClient(QtWidgets.QWidget):
 	def initialize_encoders(self):
 		# initialize dictionaries
 		self.objmondict = ['rabbit', 'rabbits', 'raccoon', 'raccoons', 'book', 'gold']
-		#self.objmondict = ['golem', 'golems', 'gold']
 		self.exitdict = ['north', 'east', 'south', 'west']
-		#self.exitdict = ['none']
 		self.room_name_dict = ['Limbo', 'Love', 'Brownhaven', 'Alley', 'Pawn', 'Path ', 'Petting']
-		#self.room_name_dict = ['Limbo', 'Love']
 		self.actiondict = ['none', 'north', 'east', 'south', 'west', 'killrabbit', 'killraccoon', 'look']
+
+		# self.objmondict = ['golem', 'golems', 'gold']
+		# self.exitdict = ['none']
+		# self.room_name_dict = ['Limbo', 'Love']
 		# self.actiondict = ['north', 'east', 'south', 'west', 'killrabbit', 'look']
-		#self.actiondict = ['none','killgolem', 'look']
+		# self.actiondict = ['none','killgolem', 'look']
 
 		# initialize tokenizations
 		self.objmon_tokenizer = Tokenizer(num_words=len(self.objmondict) + 1)
@@ -540,9 +542,13 @@ class MudBotClient(QtWidgets.QWidget):
 		self.oldEXP = 0
 		self.plot_interval = 10
 		self.step_counter = 0
+
 	def initialize_model(self):
-		# initialize_model
+		#initialize memory
 		self.memory = deque(maxlen=10000)
+		#self.state_multiplier = 16 # stack multiple states to create memory
+		self.state_multiplier = 1  # stack multiple states to create memory
+		# initialize model training parameters
 		self.epsilon = 1  # threshold for action to be random, will decay to .05
 		self.epsilon_array=[self.epsilon]
 		self.training_allowed = True
@@ -600,22 +606,64 @@ class MudBotClient(QtWidgets.QWidget):
 			# only allow values to be equal to 0 or 1. For gold coins piles seem to stack and can get 2,3, etc
 			sum_objmon_matrix = np.where(sum_objmon_matrix > 0.5, 1.0, 0.0)
 		#print(state.hostile_str)
-		state_array = np.concatenate((hp_encoded, room_matrix, sum_exit_matrix, sum_objmon_matrix, action_encoded),
+		#state_array = np.concatenate((hp_encoded, room_matrix, sum_exit_matrix, sum_objmon_matrix, action_encoded),
+		#							 axis=0)
+		#stop encoding actions for now
+		state_array = np.concatenate((hp_encoded, room_matrix, sum_exit_matrix, sum_objmon_matrix),
 									 axis=0)
-
 		return state_array
 
+	def decode_state(self, state_array):
+		#work in progress below
+		#state_array = np.concatenate((hp_encoded, room_matrix, sum_exit_matrix, sum_objmon_matrix),
+		print(state_array)
+		lenhp = 1
+		lenrooms = len(self.room_name_dict) + 1
+		lenexits = len(self.exitdict) + 1
+		lenobjmon = len(self.objmondict) + 1
+		print('ok')
+
+
+
+		index=0
+		hp_encoded = state_array[0]
+		print(hp_encoded)
+		index=index+lenhp
+		room_matrix = state_array[index:index+lenrooms]
+		print(room_matrix)
+		index+=lenrooms
+		exit_matrix = state_array[index:index+lenexits]
+		print(exit_matrix)
+		index+=lenexits
+		objmon_matrix = state_array[index:index+lenobjmon]
+		print(objmon_matrix)
+
+		#decode matrix into text
+		hp = hp_encoded*self.maxhp
+		print(hp)
+		nonzeroind = np.nonzero(room_matrix)[0][0]
+		room = self.room_name_dict[nonzeroind-1]
+		print(room)
+		nonzeroind = np.nonzero(exit_matrix)[0][0]
+		print(nonzeroind)
+		print(self.exitdict[nonzeroind-1])
+
+	# self.room_name_dict = ['Limbo', 'Love', 'Brownhaven', 'Alley', 'Pawn', 'Path ', 'Petting']
+
+
+
+
+
 	def encode_rewards(self, state):
-		action_encoded = sum(self.reward_action_tokenizer.texts_to_matrix([self.last_action]))
-		state_reward = state.reward
-		# print('action',self.last_action, 'reward: ', state_reward, 'encoded act', action_encoded)
-		reward_array = state_reward * action_encoded
+		action_encoded = sum(self.reward_action_tokenizer.texts_to_matrix([state.last_action]))
+		# print('action',self.last_action, 'reward: ', state.reward, 'encoded act', action_encoded)
+		reward_array = state.reward * action_encoded
 		return reward_array
 
 	def create_model(self):
 		# https://towardsdatascience.com/reinforcement-learning-w-keras-openai-dqns-1eed3a5338c
 		model = Sequential()
-		multiplier = 16
+		multiplier = self.state_multiplier
 		myinputdim = len(self.state_array) * multiplier  # state array includes actions
 		myoutputdim = len(self.actiondict) + 1  # outputs are actions, add one extra for unrecognized actions
 		print('input dims: ', myinputdim)
@@ -816,6 +864,7 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def train_model(self):
 		# set action loop to pause
+		print('training model')
 		self.thread.eventState = -1
 		self.replay()
 		# print('try target_train')
@@ -861,7 +910,8 @@ class MudBotClient(QtWidgets.QWidget):
 		# print('trying to get action from model')
 		# get the latest states
 		# newX = self.reshape_x_and_combine(self.state_array_history, 16)
-		inputx = self.reshape_x_and_combine(self.state_array_history[-16:], 16)  # careful changing multiplier from 16
+		mult = self.state_multiplier
+		inputx = self.reshape_x_and_combine(self.state_array_history[-mult:], mult)  # careful changing multiplier from 16
 
 		# input = newx[-1].reshape(1, 352) #the latest input is all thats needed , drop rest
 		# note we had to reshape the above inptu to use it, needs to be shape 1,352.
@@ -878,6 +928,7 @@ class MudBotClient(QtWidgets.QWidget):
 			if predicted_action_index == 0:
 				predicted_action_index = 1  # switch to wait
 			best_action = self.reward_action_tokenizer.index_word[predicted_action_index]
+
 		# print(best_action)
 		except:
 			print('failed to get prediction array ')
@@ -966,7 +1017,7 @@ class MudBotClient(QtWidgets.QWidget):
 		print('logging out')
 		self.logout()
 		#need delay to ensure file not in use
-		time.sleep(1)
+		time.sleep(3)
 		self.copy_backup_file()
 		#log the player back in
 		#print('reconnecting socket')
@@ -1008,6 +1059,7 @@ class MudBotClient(QtWidgets.QWidget):
 		self.save_model_btn = QtWidgets.QPushButton("Save Model")
 		self.load_model_btn = QtWidgets.QPushButton("Load Model")
 		self.train_model_btn = QtWidgets.QPushButton("Train Model")
+		self.evaluate_model_btn = QtWidgets.QPushButton("Evaluate Model")
 		self.save_data_btn = QtWidgets.QPushButton("Save Data")
 		self.load_data_btn = QtWidgets.QPushButton("Load Data")
 
@@ -1032,6 +1084,7 @@ class MudBotClient(QtWidgets.QWidget):
 
 		self.mapCmdsBox.addWidget(self.botStart)
 		self.mapCmdsBox.addWidget(self.train_model_btn)
+		self.mapCmdsBox.addWidget(self.evaluate_model_btn)
 		self.mapCmdsBox.addWidget(self.save_model_btn)
 		self.mapCmdsBox.addWidget(self.load_model_btn)
 		self.mapCmdsBox.addWidget(self.save_data_btn)
@@ -1064,6 +1117,13 @@ class MudBotClient(QtWidgets.QWidget):
 		self.reward_graph.plot(steps, rwd, pen=pen)
 		#self.reward_graph.setSizePolicy(QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, 200))
 
+		# widget for model loss plot
+		self.model_loss_graph = pg.PlotWidget()
+		self.model_loss_graph.setBackground('w')
+		self.model_loss_graph.setTitle('Model Loss')
+		pen = pg.mkPen(color=(0, 0, 0))
+		self.model_loss_graph.plot([0],[0], pen=pen)
+
 		# finalize layout:
 
 		self.lay.addWidget(self.roomInfo)
@@ -1082,6 +1142,7 @@ class MudBotClient(QtWidgets.QWidget):
 		#add graphs to graphics_layout
 		self.graphics_lay.addWidget(self.epsilon_graph)
 		self.graphics_lay.addWidget(self.reward_graph)
+		self.graphics_lay.addWidget(self.model_loss_graph)
 		# self.lay.addLayout(self.exitBox)
 
 		self.hlay.insertLayout(1,self.lay)
@@ -1097,6 +1158,7 @@ class MudBotClient(QtWidgets.QWidget):
 		self.save_model_btn.clicked.connect(self.save_model)
 		self.load_model_btn.clicked.connect(self.load_model)
 		self.train_model_btn.clicked.connect(self.train_model)
+		self.evaluate_model_btn.clicked.connect(self.plot_model_loss)
 		self.save_data_btn.clicked.connect(self.save_data)
 		self.load_data_btn.clicked.connect(self.load_data)
 
@@ -1176,12 +1238,21 @@ class MudBotClient(QtWidgets.QWidget):
 		pickle.dump(self.state_array_history, open("Xdata.p", "wb"))
 		pickle.dump(self.reward_array_history, open("Ydata.p", "wb"))
 		pickle.dump(self.memory, open("memory.p", "wb"))
+		pickle.dump(self.epsilon_array, open("epsilon_array.p", "wb"))
 
 	def load_data(self):
 		print('load data function called')
 		self.state_array_history = pickle.load(open("Xdata.p", "rb"))
+
 		self.reward_array_history = pickle.load(open("Ydata.p", "rb"))
+		#update reward so training can resume
+		self.reward = self.decode_reward_array_history(self.reward_array_history)[-1]
+
 		self.memory = pickle.load(open("memory.p", "rb"))
+
+		self.epsilon_array = pickle.load(open("epsilon_array.p", "rb"))
+		#update epsilon so training can resume
+		self.epsilon = self.epsilon_array[-1]
 
 
 
@@ -1388,7 +1459,8 @@ class MudBotClient(QtWidgets.QWidget):
 			text = 'go green\r\n'
 			btext = text.encode('utf-8')
 			self.tcpSocket.write(QtCore.QByteArray(btext))
-
+			self.save_data()
+			self.save_model()
 			self.reset_player_file()
 
 		if newstate.room_name == 'The Tree of Life':
@@ -1550,6 +1622,47 @@ class MudBotClient(QtWidgets.QWidget):
 		pen = pg.mkPen(color=(0, 0, 0))
 		self.epsilon_graph.plot(steps, epsilon_array, pen=pen)
 
+	def plot_model_loss(self,reward_array_history):
+		print('model loss called')
+		training_cycles = 1000
+		results =[]
+		xparam = np.arange(training_cycles)
+		for i in np.arange(training_cycles):
+			batch_size = 20 #use 1000 samples
+			samples = random.sample(self.memory, batch_size)
+			#do this the slow way for now, vectorize later for speed
+			x_values = []
+			y_values = []
+			for sample in samples:
+				state, action, reward, new_state, done = sample
+				target = self.target_model.predict(state)
+				x_values.append(state)
+				y_values.append(target)
+
+			#print('here we go')
+			x_values = np.vstack(x_values)
+			y_values = np.vstack(y_values)
+
+			#print('xvals',x_values)
+			#print('yvals',y_values)
+			#print('xvalshape',x_values.shape)
+			#print('yvalshape',y_values.shape)
+			#print('stateshape',state.shape)
+			#print('targetshape',target.shape)
+			#print('made it here')
+			result = self.model.evaluate(x_values, y_values, verbose = 0)
+			results.append(result)
+			#now train model again
+			self.replay()
+			self.target_train()
+
+		#now plot
+		pen = pg.mkPen(color=(0, 0, 0))
+		self.model_loss_graph.plot(xparam, results, pen=pen)
+
+
+
+
 	def tcpSocketReadyReadEmitted(self):
 		try:
 			socket_data = self.tcpSocket.readAll()
@@ -1558,12 +1671,17 @@ class MudBotClient(QtWidgets.QWidget):
 			txt = str(socket_data)[2:-1]
 			self.world_state_history.append(self.world_state)
 			# generate new state
+			old_world_state = self.world_state
 			newstate = self.parse_worldstate(txt)
 			self.world_state = newstate
 			# print('worldstate: ',self.world_state.state_to_string(),'reward: ',newstate.reward)
 			# print(len(self.world_state_history))
 
 			self.state_array = self.encode_state(self.world_state)
+			#print('try decode')
+			#decode not functional yet
+			#self.decode_state(self.state_array)
+			#print('decode ok')
 			self.reward_array = self.encode_rewards(self.world_state)
 			self.reward_array_history.append(self.reward_array)
 			self.epsilon_array.append(self.epsilon)
@@ -1590,20 +1708,24 @@ class MudBotClient(QtWidgets.QWidget):
 			# print('[_. W. N. E. S. W. K. k. L.]')
 			# print(np.where(self.reward_array > 0, 1., 0.))
 
-			if len(self.state_array_history) > 32:
+			if len(self.state_array_history) > 2*self.state_multiplier:
 				# print('generating curr adn old states')
-				curr_state = self.reshape_x_and_combine(self.state_array_history[-16:], 16)
-				old_state = self.reshape_x_and_combine(self.state_array_history[-32:-16], 16)
+				curr_state = self.reshape_x_and_combine(self.state_array_history[-self.state_multiplier:], self.state_multiplier)
+				old_state = self.reshape_x_and_combine(self.state_array_history[-2*self.state_multiplier:-self.state_multiplier], self.state_multiplier)
 				# encode action
 				# print('get action index',self.last_action[0])
 				# print('hmmm',self.actiondict.index(self.last_action[0]))
 				action_index = self.actiondict.index(self.last_action[0])
 				# print(action_index)
 				# print('store memory')
+				#need to encode the reward
+				#reward_to_store = self.encode_rewards(old_world_state) #reward needs to go with old state
+				reward_to_store = old_world_state.reward
+				print(reward_to_store)
 
 				self.store_memory(old_state,
 								  action_index,
-								  self.world_state.reward,
+								  reward_to_store,
 								  curr_state,
 								  False)  # done initially False?
 				# print('replay')
@@ -1632,7 +1754,7 @@ class MudBotClient(QtWidgets.QWidget):
 			print(sys.exc_info())
 
 	def replay(self):
-		# print('replay triggered')
+		#print('replay triggered')
 		batch_size = 4
 		if len(self.memory) < batch_size:
 			print('memory too short', len(self.memory))
@@ -1644,6 +1766,9 @@ class MudBotClient(QtWidgets.QWidget):
 
 			state, action, reward, new_state, done = sample
 			target = self.target_model.predict(state)
+			#print(target)
+			#print(max(target))
+			#print(max(target[0]))
 			if done:
 				target[0][action] = reward
 			else:
@@ -1651,6 +1776,9 @@ class MudBotClient(QtWidgets.QWidget):
 				newval = reward + Q_future * self.gamma
 				target[0][action] = newval
 			self.model.fit(state, target, epochs=1, verbose=0)
+		#print('replay complete')
+
+
 
 	def target_train(self):
 		# print('1')
