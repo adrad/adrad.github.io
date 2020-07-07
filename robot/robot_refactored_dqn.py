@@ -977,22 +977,26 @@ class MudBotClient(QtWidgets.QWidget):
 		#self.tcpSocket.abort()
 
 	def reconnect(self):
-		self.tn = telnetlib.Telnet(self.HOST, self.port)
-		self.tcpSocket.setSocketDescriptor(self.tn.sock.fileno())
-		self.login()
+		try:
+			self.tn = telnetlib.Telnet(self.HOST, self.port)
+			print('recreated tn object')
+			self.tcpSocket.setSocketDescriptor(self.tn.sock.fileno())
+			print('set socket descriptor to telnet file')
+			self.login()
+			print('logged in')
+			return True
+		except:
+			print('fail')
+			return False
 
 	def login(self):
 		# auto login, set flags (clear long)
 		# add b before strings to turn them into bytes
 		# txt = b'test' + b'\n' + b'asdfasdf' + b'\r\n' #+ 'clear long\r\n' + 'set auto' + '\r\n'
-		text = 'tester\nasdfasdf\r\nlook\n'
+		text = 'tester\nasdfasdf\r\n'
 		btext = text.encode('utf-8')
-
 		self.tcpSocket.write(QtCore.QByteArray(btext))
-		#reset hp when starting out
-		#text = 'bleed\r\n'
-		#btext = text.encode('utf-8')
-		#self.tcpSocket.write(QtCore.QByteArray(btext))
+
 
 	def logout(self):
 		# auto login, set flags (clear long)
@@ -1010,27 +1014,32 @@ class MudBotClient(QtWidgets.QWidget):
 		filedir = src_dir + "\\..\\mordor\\player\\"
 		backupfile = 'Tester_backup'
 		copyfile = 'Tester'
-
 		fullpath = filedir + backupfile
 		copypath = filedir + copyfile
-
 		shutil.copyfile(fullpath, copypath)
 		print('Tester loaded from backup')
 
 	def reset_player_file(self):
+		# setactionlooptopause
+		self.thread.eventState = -1
 		#log the player out
-		#time.sleep(1)
-		print('logging out')
 		self.logout()
-		#need delay to ensure file not in use
-		time.sleep(.1)
-		self.copy_backup_file()
+		try:
+			self.copy_backup_file()
+		except:
+			print('backupfile copy issue')
 		#log the player back in
-		#print('reconnecting socket')
-		#time.sleep(2)
-		#reconnect
 		print('logging in')
-		self.reconnect()
+		success = False
+		while not success:
+			try:
+				success = self.reconnect()
+			except:
+				print('connection error, trying again')
+		print('Reconnecting complete. Resuming event loop')
+		# resumeactions
+		self.world_state.room_name = 'Order of Love'
+		self.thread.eventState = 0
 
 
 
@@ -1319,6 +1328,7 @@ class MudBotClient(QtWidgets.QWidget):
 			#newstate.objmonlist = self.world_state.objmonlist
 
 		except:
+			print('newstate didnt load correctly rom world_state')
 			pass
 		# consider reset of award
 		# self.reward = 0
@@ -1327,6 +1337,7 @@ class MudBotClient(QtWidgets.QWidget):
 
 		if status == True:
 			newstate.room_name = room_name
+			print('new room detected',room_name)
 			# shoud also reset monsters present
 			# UPON ENTERING a new room, reset obj/monsters
 
@@ -1458,27 +1469,6 @@ class MudBotClient(QtWidgets.QWidget):
 				# self.reward = self.reward - (43-newstate.hp)/43 -0.05 #big positive reward for ticking, modulated by differential
 				newstate.reward = self.reward
 
-		# hardcode escape from limbo
-		if newstate.room_name == 'Limbo':
-			#after dying reset the player file (deals with de-leveling)
-			#write to socket immediately
-			text = 'go green\r\n'
-			btext = text.encode('utf-8')
-			self.tcpSocket.write(QtCore.QByteArray(btext))
-			self.save_data()
-			self.save_model()
-			try:
-				self.reset_player_file()
-			except:
-				print('issue with resetting the player file')
-
-		if newstate.room_name == 'The Tree of Life':
-			self.thread.action_from_parent = 'go down'
-		start_indicator = "I don"
-		end_indicator = "see that exit."
-		xstatus, noxtstr = self.pull_text(txt, start_indicator, end_indicator)
-		if xstatus == True:
-			self.thread.action_from_parent = 'look'
 
 
 		# state dictionary for reference below
@@ -1672,7 +1662,19 @@ class MudBotClient(QtWidgets.QWidget):
 		pen = pg.mkPen(color=(0, 0, 0))
 		self.model_loss_graph.plot(xparam, results, pen=pen)
 
-
+	def check_if_reset_needed(self):
+		if self.world_state.room_name == 'Limbo':
+			# after dying reset the player file (deals with de-leveling)
+			print('time to reset character, player in Limbo. Reset to Order')
+			save_enabled = True
+			if save_enabled:
+				print('calling save data and save model')
+				self.save_data()
+				self.save_model()
+			try:
+				self.reset_player_file()
+			except:
+				print('issue with resetting the player file')
 
 
 	def tcpSocketReadyReadEmitted(self):
@@ -1688,6 +1690,9 @@ class MudBotClient(QtWidgets.QWidget):
 			self.world_state = newstate
 			# print('worldstate: ',self.world_state.state_to_string(),'reward: ',newstate.reward)
 			# print(len(self.world_state_history))
+
+			#check if player needs a reset
+			self.check_if_reset_needed()
 
 			self.state_array = self.encode_state(self.world_state)
 			#print('try decode')
