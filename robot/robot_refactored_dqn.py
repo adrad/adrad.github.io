@@ -555,8 +555,10 @@ class MudBotClient(QtWidgets.QWidget):
 		# self.training_allowed=False
 		self.epsilon_min = 0.05
 		self.epsilon_decay = 0.999
-		self.gamma = 0.99  # google uses 0.99
-		self.tau = 0.125
+		#discount for future rewards
+		self.gamma = 0.99  # google uses 0.99 discount factor
+		self.tau = 0.125 #1E-3 for soft update of target parameters
+		self.learning_rate = 0.0001 #learning rate
 		# create the model
 		self.model = self.create_model()
 		self.target_model = self.create_model()
@@ -668,12 +670,12 @@ class MudBotClient(QtWidgets.QWidget):
 		myoutputdim = len(self.actiondict) + 1  # outputs are actions, add one extra for unrecognized actions
 		print('input dims: ', myinputdim)
 
-		model.add(Dense(2, input_dim=myinputdim, activation='relu'))
+		model.add(Dense(36, input_dim=myinputdim, activation='relu'))
 		#model.add(Dense(768, activation='relu'))
-		model.add(Dense(2, activation='relu'))
+		model.add(Dense(36, activation='relu'))
 
 		model.add(Dense(myoutputdim, activation='softmax')) #can try softmax too
-		roptimizer = RMSprop(lr=0.0001)
+		roptimizer = RMSprop(lr=self.learning_rate)
 		model.compile(optimizer=roptimizer, loss='mean_squared_error')
 
 		model.summary()
@@ -968,7 +970,10 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def closeSockets(self):
 		# close the socket
+
+		# pause to let socket complete
 		self.tn.close()
+		time.sleep(1)
 		#self.tcpSocket.abort()
 
 	def reconnect(self):
@@ -980,7 +985,7 @@ class MudBotClient(QtWidgets.QWidget):
 		# auto login, set flags (clear long)
 		# add b before strings to turn them into bytes
 		# txt = b'test' + b'\n' + b'asdfasdf' + b'\r\n' #+ 'clear long\r\n' + 'set auto' + '\r\n'
-		text = 'tester\nasdfasdf\r\n'
+		text = 'tester\nasdfasdf\r\nlook\n'
 		btext = text.encode('utf-8')
 
 		self.tcpSocket.write(QtCore.QByteArray(btext))
@@ -997,6 +1002,7 @@ class MudBotClient(QtWidgets.QWidget):
 		btext = text.encode('utf-8')
 
 		self.tcpSocket.write(QtCore.QByteArray(btext))
+
 		self.closeSockets()
 
 	def copy_backup_file(self):
@@ -1017,7 +1023,7 @@ class MudBotClient(QtWidgets.QWidget):
 		print('logging out')
 		self.logout()
 		#need delay to ensure file not in use
-		time.sleep(3)
+		time.sleep(.1)
 		self.copy_backup_file()
 		#log the player back in
 		#print('reconnecting socket')
@@ -1461,7 +1467,10 @@ class MudBotClient(QtWidgets.QWidget):
 			self.tcpSocket.write(QtCore.QByteArray(btext))
 			self.save_data()
 			self.save_model()
-			self.reset_player_file()
+			try:
+				self.reset_player_file()
+			except:
+				print('issue with resetting the player file')
 
 		if newstate.room_name == 'The Tree of Life':
 			self.thread.action_from_parent = 'go down'
@@ -1622,15 +1631,15 @@ class MudBotClient(QtWidgets.QWidget):
 		pen = pg.mkPen(color=(0, 0, 0))
 		self.epsilon_graph.plot(steps, epsilon_array, pen=pen)
 
-	def plot_model_loss(self,reward_array_history):
+	def evaluate_model_loss(self):
 		print('model loss called')
 		training_cycles = 1000
-		results =[]
+		results = []
 		xparam = np.arange(training_cycles)
 		for i in np.arange(training_cycles):
-			batch_size = 20 #use 1000 samples
+			batch_size = 20  # use 1000 samples
 			samples = random.sample(self.memory, batch_size)
-			#do this the slow way for now, vectorize later for speed
+			# do this the slow way for now, vectorize later for speed
 			x_values = []
 			y_values = []
 			for sample in samples:
@@ -1639,23 +1648,26 @@ class MudBotClient(QtWidgets.QWidget):
 				x_values.append(state)
 				y_values.append(target)
 
-			#print('here we go')
+			# print('here we go')
 			x_values = np.vstack(x_values)
 			y_values = np.vstack(y_values)
 
-			#print('xvals',x_values)
-			#print('yvals',y_values)
-			#print('xvalshape',x_values.shape)
-			#print('yvalshape',y_values.shape)
-			#print('stateshape',state.shape)
-			#print('targetshape',target.shape)
-			#print('made it here')
-			result = self.model.evaluate(x_values, y_values, verbose = 0)
+			# print('xvals',x_values)
+			# print('yvals',y_values)
+			# print('xvalshape',x_values.shape)
+			# print('yvalshape',y_values.shape)
+			# print('stateshape',state.shape)
+			# print('targetshape',target.shape)
+			# print('made it here')
+			result = self.model.evaluate(x_values, y_values, verbose=0)
 			results.append(result)
-			#now train model again
+			# now train model again
 			self.replay()
 			self.target_train()
+		return xparam,results
 
+	def plot_model_loss(self,reward_array_history):
+		xparam,results = self.evaluate_model_loss()
 		#now plot
 		pen = pg.mkPen(color=(0, 0, 0))
 		self.model_loss_graph.plot(xparam, results, pen=pen)
