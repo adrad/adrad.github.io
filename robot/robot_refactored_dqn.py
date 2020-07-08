@@ -61,7 +61,7 @@ class Modelingthread(QtCore.QThread):
 		#model.add(Dense(768, activation='relu'))
 		model.add(Dense(2, activation='relu'))
 
-		model.add(Dense(myoutputdim, activation='softmax')) #can try softmax too
+		model.add(Dense(myoutputdim, activation='linear')) #can try softmax too
 		roptimizer = RMSprop(lr=0.0001)
 		model.compile(optimizer=roptimizer, loss='mean_squared_error')
 
@@ -304,13 +304,10 @@ class Modelingthread(QtCore.QThread):
 		batch_size = 4
 		if len(self.memory) < batch_size:
 			print('memory too short', len(self.memory))
-
 			return
-
 		samples = random.sample(self.memory, batch_size)
 		for sample in samples:
 			try:
-
 				state, action, reward, new_state, done = sample
 				target = self.target_model.predict(state)
 			except:
@@ -318,9 +315,12 @@ class Modelingthread(QtCore.QThread):
 			if done:
 				target[0][action] = reward
 			else:
-				Q_future = max(self.target_model.predict(new_state)[0])
-				newval = reward + Q_future * self.gamma
-				target[0][action] = newval
+				##Q_future = max(self.target_model.predict(new_state)[0])
+				#newval = reward + Q_future * self.gamma
+				#target[0][action] = newval
+				t = self.target_model.predict(next_state)[0]
+				target[0][action] = reward + self.gamma * np.amax(t)
+			# target[0][action] = reward + self.gamma * t[np.argmax(a)]
 			self.model.fit(state, target, epochs=1, verbose=0)
 
 	def target_train(self):
@@ -554,11 +554,11 @@ class MudBotClient(QtWidgets.QWidget):
 		self.training_allowed = True
 		# self.training_allowed=False
 		self.epsilon_min = 0.05
-		self.epsilon_decay = 0.999
+		self.epsilon_decay = 0.99
 		#discount for future rewards
-		self.gamma = 0.99  # google uses 0.99 discount factor
-		self.tau = 0.125 #1E-3 for soft update of target parameters
-		self.learning_rate = 0.0001 #learning rate
+		self.gamma = 0.99#0.99  # google uses 0.99 discount factor
+		self.tau = .01 #0.125 #1E-3 for soft update of target parameters
+		self.learning_rate = 0.000001 #learning rate
 		# create the model
 		self.model = self.create_model()
 		self.target_model = self.create_model()
@@ -1075,6 +1075,7 @@ class MudBotClient(QtWidgets.QWidget):
 		self.load_model_btn = QtWidgets.QPushButton("Load Model")
 		self.train_model_btn = QtWidgets.QPushButton("Train Model")
 		self.evaluate_model_btn = QtWidgets.QPushButton("Evaluate Model")
+		self.evaluate_data_btn = QtWidgets.QPushButton("Evaluate Data")
 		self.save_data_btn = QtWidgets.QPushButton("Save Data")
 		self.load_data_btn = QtWidgets.QPushButton("Load Data")
 
@@ -1100,6 +1101,7 @@ class MudBotClient(QtWidgets.QWidget):
 		self.mapCmdsBox.addWidget(self.botStart)
 		self.mapCmdsBox.addWidget(self.train_model_btn)
 		self.mapCmdsBox.addWidget(self.evaluate_model_btn)
+		self.mapCmdsBox.addWidget(self.evaluate_data_btn)
 		self.mapCmdsBox.addWidget(self.save_model_btn)
 		self.mapCmdsBox.addWidget(self.load_model_btn)
 		self.mapCmdsBox.addWidget(self.save_data_btn)
@@ -1174,6 +1176,7 @@ class MudBotClient(QtWidgets.QWidget):
 		self.load_model_btn.clicked.connect(self.load_model)
 		self.train_model_btn.clicked.connect(self.train_model)
 		self.evaluate_model_btn.clicked.connect(self.plot_model_loss)
+		self.evaluate_data_btn.clicked.connect(self.evaluate_data)
 		self.save_data_btn.clicked.connect(self.save_data)
 		self.load_data_btn.clicked.connect(self.load_data)
 
@@ -1337,7 +1340,7 @@ class MudBotClient(QtWidgets.QWidget):
 
 		if status == True:
 			newstate.room_name = room_name
-			print('new room detected',room_name)
+			#print('new room detected',room_name)
 			# shoud also reset monsters present
 			# UPON ENTERING a new room, reset obj/monsters
 
@@ -1380,6 +1383,7 @@ class MudBotClient(QtWidgets.QWidget):
 		status, hostile_str = self.get_hostile_str(txt)
 		if status == True:
 			newstate.hostile_str = hostile_str
+			print(hostile_str)
 
 		status, damage_str = self.got_hit_str(txt)
 		if status == True:
@@ -1621,9 +1625,40 @@ class MudBotClient(QtWidgets.QWidget):
 		pen = pg.mkPen(color=(0, 0, 0))
 		self.epsilon_graph.plot(steps, epsilon_array, pen=pen)
 
+	def evaluate_data(self):
+		#This function provides information on the current dataset
+		print('Memory Size:', len(self.memory))
+		#calculate total possible number of states
+		#get one state
+		sample = random.sample(self.memory, 1)[0]
+		state, action, reward, new_state, done = sample
+
+		total_possible_states = self.maxhp * (len(state[0]) -1)
+		total_game_states = total_possible_states/(len(self.exitdict)+1)
+		#fewer game states because exits in rooms are fixed
+		print('Total number of possible states: ',total_possible_states)
+		print('Likely actual game states ', total_game_states)
+		#each state will look like [hp,b,b,b,b,b,b,...] where b is either a 0 or a 1
+		'''#example below:		
+		#(hp_encoded, room_matrix, sum_exit_matrix, sum_objmon_matrix)
+		hp		R     R     R    R    R     R      R     R     E     E     E          
+		[0.448 0.    0.    0.    0.    1.    0.    0.    0.    0.    1.    1.
+			E      E     O     O     O     O     O     O    O 
+ 			0.    0.    0.    0.    0.    0.    0.    0.    0.   ]
+ 			'''
+		unique_states = set()
+		#now count each state
+		for m in self.memory:
+			state, action, reward, new_state, done = m
+			unique_states.add(tuple(state[0]))
+		print('Unique states in memory: ',len(unique_states))
+		percentage_mapped = 100*(len(unique_states)/total_game_states)
+		print('Available state space in data: ',percentage_mapped, '%')
+		print('If greater than 100%, estimates wrong or maybe float error on hp value')
+
 	def evaluate_model_loss(self):
 		print('model loss called')
-		training_cycles = 1000
+		training_cycles = 500
 		results = []
 		xparam = np.arange(training_cycles)
 		for i in np.arange(training_cycles):
@@ -1705,8 +1740,10 @@ class MudBotClient(QtWidgets.QWidget):
 			#plot every n steps
 
 			if self.step_counter % self.plot_interval == 0:
+				self.thread.eventState = -1 #pause action loop
 				self.plot_reward(self.reward_array_history)
 				self.plot_epsilon(self.epsilon_array)
+				self.thread.eventState = 0 #resume action loop
 			self.step_counter +=1
 			# self.objmondict = ['rabbit', 'rabbits', 'raccoon', 'raccoons', 'book', 'gold']
 			# self.exitdict = ['north', 'east', 'south', 'west']
@@ -1798,17 +1835,14 @@ class MudBotClient(QtWidgets.QWidget):
 
 
 	def target_train(self):
-		# print('1')
+
 		weights = self.model.get_weights()
-		# print('2')
 		target_weights = self.target_model.get_weights()
-		# print('3')
 		for i in range(len(target_weights)):
 			target_weights[i] = weights[i] * self.tau + target_weights[i] * (1 - self.tau)
-		# print('4')
 		self.target_model.set_weights(target_weights)
 
-	# print('5')
+
 
 	def splitString(self, stri):
 		# a function to take a comma separated string and get out a list
