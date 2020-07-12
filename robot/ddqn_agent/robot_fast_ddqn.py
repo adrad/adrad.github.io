@@ -1611,7 +1611,7 @@ class MudBotClient(QtWidgets.QWidget):
 			print('issue with resetting the player file')
 			print(sys.exc_info()[0])
 			print(sys.exc_info())
-
+		self.thread.eventState = 0  # set action loop to pause
 
 	def tcpSocketReadyReadEmitted(self):
 		try:
