@@ -1,5 +1,7 @@
 ####
 #Bot converted to start in room 200. Includes reset. This is the baseline ddqn.
+#This bot stores and trains on a cumulative reward over seval episodes
+#
 ####
 
 import sys
@@ -123,11 +125,11 @@ class EventThread(QtCore.QThread):
 					#get number of milliseconds
 
 					#slow version
-					delta_milli = diff.seconds
+					#delta_milli = diff.seconds
 
 					#fast version - every 100 ms right now
-					#delta_milli = diff.microseconds / 1000.0
-					#delta_milli = delta_milli/100
+					delta_milli = diff.microseconds / 1000.0
+					delta_milli = delta_milli/100
 
 					if delta_milli >= 2:
 
@@ -199,7 +201,6 @@ class Worldstate():
 	def refresh_transient_flags(self):
 		#reset some of the flags
 		#for now decide to keep the room name
-
 		self.delaystr = ''
 		self.hostile_str = ''
 		self.damage_str = ''
@@ -282,11 +283,14 @@ class MudBotClient(QtWidgets.QWidget):
 		self.oldEXP = 0
 		self.plot_interval = 10
 		self.step_counter = 0
+		self.steps_per_episode = 100
 		self.initialize_rewards()
 
+
 	def initialize_rewards(self):
-		self.killreward= 150
-		self.diepenalty = 150
+		self.reward= 0
+		self.killreward= 100
+		self.diepenalty = 100
 
 
 	def initialize_model(self):
@@ -300,10 +304,10 @@ class MudBotClient(QtWidgets.QWidget):
 		self.training_allowed = True
 		# self.training_allowed=False
 		self.epsilon_min = 0.05
-		self.epsilon_decay = 0.999
+		self.epsilon_decay = 0.99
 		#discount for future rewards
-		self.gamma = 0 #0.99#0.99  # google uses 0.99 discount factor
-		self.tau = .001 #0.125 #1E-3 for soft update of target parameters
+		self.gamma = 0.99#0.99  # google uses 0.99 discount factor
+		self.tau = .01 #0.125 #1E-3 for soft update of target parameters
 		self.learning_rate = 0.0001 #learning rate
 		# create the model
 		self.model = self.create_model()
@@ -771,7 +775,7 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def copy_backup_file(self):
 		src_dir = os.getcwd()
-		filedir = src_dir + "\\..\\mordor\\player\\"
+		filedir = src_dir + "\\..\\..\\mordor\\player\\"
 		backupfile = 'Tester_backup'
 		copyfile = 'Tester'
 		fullpath = filedir + backupfile
@@ -1584,6 +1588,10 @@ class MudBotClient(QtWidgets.QWidget):
 		if self.world_state.room_name == 'Limbo':
 			# after dying reset the player file (deals with de-leveling)
 			print('time to reset character, player in Limbo. Reset to Order')
+			self.reset_player()
+			self.initialize_world_state()
+
+	def reset_player(self):
 			save_enabled = True
 			if save_enabled:
 				print('calling save data and save model')
@@ -1600,9 +1608,9 @@ class MudBotClient(QtWidgets.QWidget):
 			socket_data = self.tcpSocket.readAll()
 			txt = str(socket_data)[2:-1]
 			parsediff = datetime.now() - self.parsetimer
-			if parsediff.seconds <= 1: #continuously update state for 1 second
+			if parsediff.seconds <= .1: #continuously update state for 1 second
 				self.world_state = self.parse_worldstate(txt)
-			if parsediff.seconds > 1: #after one second store the world state, and reset some state parameters
+			if parsediff.seconds > .1: #after one second store the world state, and reset some state parameters
 				self.parsetimer = datetime.now() # reset timer
 				self.world_state = self.parse_worldstate(txt) #one last parse
 				self.world_state_history.append(self.world_state)
@@ -1620,10 +1628,11 @@ class MudBotClient(QtWidgets.QWidget):
 					old_state_array = self.reshape_x_and_combine(self.state_array_history[-2*self.state_multiplier:-self.state_multiplier], self.state_multiplier)
 					action_index = self.actiondict.index(self.last_action[0])
 					reward_to_store = self.calculate_reward_from_state(old_world_state)
-					print('calculated reward',reward_to_store)
+					self.reward += reward_to_store
+					print(self.reward)
 					self.store_memory(old_state_array,
 									  action_index,
-									  reward_to_store,
+									  self.reward,
 									  curr_state_array,
 									  False)  # done initially False?
 					if self.training_allowed == True:
@@ -1635,7 +1644,7 @@ class MudBotClient(QtWidgets.QWidget):
 							print('could not run replay and target_train successfully')
 						self.thread.eventState = 0 #resume actions
 				#Partially reset world state. Also partially reset last_action
-				self.world_state.refresh_reward()
+				#self.world_state.refresh_reward() no reward reset here
 				self.world_state.refresh_transient_flags()
 				self.last_action = ['none'] #may want to drop this
 
@@ -1646,6 +1655,25 @@ class MudBotClient(QtWidgets.QWidget):
 					self.plot_epsilon(self.epsilon_array)
 					self.thread.eventState = 0  # resume action loop
 				self.step_counter += 1
+
+				#reset episode every n steps
+				if self.step_counter % self.steps_per_episode == 0:
+
+					while self.epsilon < .95:
+						try:
+							print('Episode Step Limit Reached')
+							#reset player
+							#self.reset_player()
+							self.world_state_history=[]
+							self.state_array_history=[]
+							self.world_state = Worldstate()
+							self.state_array = self.encode_state(self.world_state)
+							#self.world_state = Worldstate()
+							self.reward = 0
+							self.epsilon = 1
+						except:
+							print('error  on episode reset')
+					#self.step_counter =
 
 			self.check_if_reset_needed() # check if player needs a reset, and if so apply reset
 			self.display.append(self.cleanText(txt)) #clean text before displaying
