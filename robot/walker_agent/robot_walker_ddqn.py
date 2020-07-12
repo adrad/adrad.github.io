@@ -1,5 +1,5 @@
 ####
-#This walker agent does not engage in combat. Just walks. Supposed to learn to only take good exits.
+#Bot converted to start in room 200. Includes reset. This is the baseline ddqn.
 ####
 
 import sys
@@ -40,300 +40,6 @@ import time
 
 # import math
 # import random
-
-class Modelingthread(QtCore.QThread):
-	def __init__(self, parent):  # allow passing parent into the eventthread object
-		super(EventThread, self).__init__(parent)
-		# import weakref #https://stackoverflow.com/questions/10791588/getting-container-parent-object-from-within-python
-		self.state_array = parent.state_array
-		self.actiondict = parent.actiondict
-
-	def create_model(self):
-		# https://towardsdatascience.com/reinforcement-learning-w-keras-openai-dqns-1eed3a5338c
-		model = Sequential()
-		multiplier = self.state_multiplier
-		myinputdim = len(self.state_array) * multiplier  # state array includes actions
-		myoutputdim = len(self.actiondict) + 1  # outputs are actions, add one extra for unrecognized actions
-		print('input dims: ', myinputdim)
-
-		model.add(Dense(2, input_dim=myinputdim, activation='relu'))
-		#model.add(Dense(768, activation='relu'))
-		model.add(Dense(2, activation='relu'))
-
-		model.add(Dense(myoutputdim, activation='linear')) #can try softmax too
-		roptimizer = RMSprop(lr=0.0001)
-		model.compile(optimizer=roptimizer, loss='mean_squared_error')
-
-		model.summary()
-		# Visualize the model
-		try:
-			plot_model(model, to_file='model.png', show_shapes=True)
-		except ImportError as e:
-			print('couldnt print model to image', e)
-		return model
-	def reshape_x(self, x_input):
-		# shape for X should be:
-		# (num_samples,num_features)
-		# reshape to get into the right format for the neural net
-
-		newx = np.stack(x_input, axis=1)
-		newx = np.transpose(newx)
-
-		return newx
-
-	def reshape_xy_and_combine(self, x_input, y_input, multiplier):
-		# X for a neural net that takes one state at a time
-		# has shape num_samples, num_features
-		# if we combine to take say 16 states as input into neural net
-		# new shape is 16*num_sample, num_features
-
-		x = self.reshape_x(x_input)
-
-		# now we want to reshape X based on the multiplier.
-		# start by reshaping as standard. now x is num_sample x num_features
-		[num_samples, num_features] = x.shape
-		nn_s = num_samples / multiplier
-		nn_f = num_features * multiplier
-
-		# have to make a few adjustments to deal with odd shaped matrices
-		nnn_s = int(np.floor(nn_s))
-		nnn_f = int(np.ceil(nn_f))
-		extra_rows = num_samples % multiplier
-		x_corrected = x[extra_rows:]
-		newX = x_corrected.reshape(nnn_s, nnn_f)
-
-		# now combine the rewards y as well
-		y = np.concatenate(y_input, axis=0)
-		# print('y',len(y))
-		y_corrected = y[extra_rows:]
-		# print('y_corr',len(y_corrected))
-		# now get average of reward int he combined set of inputs
-		# split into segments
-		y_segments = np.split(y_corrected, nnn_s)
-		# print('y seg', y_segments)
-		# get average of each esgment
-		newY = np.mean(y_segments, axis=1)
-		# print('newY', newY)
-		# print('num samples',num_samples, 'updated # inputs', nnn_s)
-
-		return newX, newY
-
-	def reshape_x_and_combine(self, x_input, multiplier):
-		# X for a neural net that takes one state at a time
-		# has shape num_samples, num_features
-		# if we combine to take say 16 states as input into neural net
-		# new shape is 16*num_sample, num_features
-
-		x = self.reshape_x(x_input)
-
-		# now we want to reshape X based on the multiplier.
-		# start by reshaping as standard. now x is num_sample x num_features
-		[num_samples, num_features] = x.shape
-		nn_s = num_samples / multiplier
-		nn_f = num_features * multiplier
-
-		# have to make a few adjustments to deal with odd shaped matrices
-		nnn_s = int(np.floor(nn_s))
-		nnn_f = int(np.ceil(nn_f))
-		extra_rows = num_samples % multiplier
-		x_corrected = x[extra_rows:]
-		newX = x_corrected.reshape(nnn_s, nnn_f)
-		return newX
-
-
-
-	def combine_y_array(self, y_array, multiplier):
-		# print('combine_y_array function started')
-		# print(y_array)
-		y_cat = np.concatenate(y_array, axis=0)
-		# print(y_cat)
-
-		# y array is of shape num_samples, num_labels
-		# we need to stack it so that it becomes 16 num_samples in a row
-		# new shape will be num_samples/16 , 16*num_labels
-
-		# now we want to reshape X based on the multiplier.
-		# start by reshaping as standard. now x is num_sample x num_features
-		[num_samples, num_features] = y_cat.shape
-		# print('y_cat shape', y_cat.shape)
-		nn_s = num_samples / multiplier
-		# nn_f = num_features * multiplier
-		# print('nn_s nn_f',nn_s,nn_f)
-		# have to make a few adjustments to deal with odd shaped matrices
-		nnn_s = int(np.floor(nn_s))
-		# nnn_f = int(np.ceil(nn_f))
-		extra_rows = num_samples % multiplier
-		# 5/26 we have an offset of 1 to fix. current reward corresponds to past action currently\
-		# we add an offset here to fix the issue
-		offset = -1
-		y_corrected = y_cat[extra_rows + offset:offset]
-		# print('ycorr', y_corrected)
-
-		# now get average of reward in the combined set of inputs
-		# split into segments
-		y_segments = np.split(y_corrected, nnn_s)
-		# print('y seg', y_segments)
-		# get sum of each segment
-		newY = np.sum(y_segments, axis=1)
-
-		# newY = y_corrected.reshape(nnn_s, nnn_f)
-		# print(newY)
-
-		return newY
-
-	def train_model(self):
-		print('here')
-		# set action loop to pause
-		self.thread.eventState = -1
-		self.replay()
-		# print('try target_train')
-		print('stillhere')
-		self.target_train()
-		# resume actions
-		self.thread.eventState = 0
-
-	def train_model_old(self):
-		# print('train model function called')
-		# newX=self.reshape_x(self.state_array_history)
-		# newX, newY = self.reshape_xy_and_combine(self.state_array_history,self.reward_history, 16)
-		newX = self.reshape_x_and_combine(self.state_array_history, self.state_multiplier)
-		# careful changing multiplier from 16
-
-		try:
-
-			y = [self.reward_array_history]
-			newY = self.combine_y_array(y, self.state_multiplier)
-
-		except:
-			print('something went wrong with y array in training')
-
-		try:
-			# https://keras.io/api/models/model_training_apis/
-
-			history = self.model.fit(x=newX, y=newY, batch_size=10, epochs=1, verbose=1)
-
-		# print('did we make it here?')
-		# pickle.dump(newX, open("newX.p", "wb"))
-		# pickle.dump(newY, open("newY.p", "wb"))
-		# self.loss_history.append(history.history)
-		# ypredict = self.model.predict(newX)
-		# print('prediction:', ypredict)
-		# print('history:', history.history)
-
-		# save the model
-		# serialize model to JSON
-		# model_json = self.model.to_json()
-		# with open("model.json", "w") as json_file:
-		#    json_file.write(model_json)
-		except:
-			import pickle
-			print('Warning! model training code did not work')
-			pickle.dump(newX, open("newX.p", "wb"))
-			pickle.dump(newY, open("newY.p", "wb"))
-			print('dumped with pickle')
-
-
-
-	def get_action_from_model(self):
-		# print('trying to get action from model')
-		# get the latest states
-		# newX = self.reshape_x_and_combine(self.state_array_history, 16)
-		inputx = self.reshape_x_and_combine(self.state_array_history[-self.state_multiplier:], self.state_multiplier)  # careful changing multiplier from 16
-
-		# input = newx[-1].reshape(1, 352) #the latest input is all thats needed , drop rest
-		# note we had to reshape the above inptu to use it, needs to be shape 1,352.
-		# print('input shape', input.shape)
-		# default action is to wait
-		best_action = 'look'
-
-		try:
-
-			predict_list = list(self.model.predict(inputx)[0])
-			# print('predict_list',predict_list)
-			predicted_action_index = predict_list.index(max(predict_list))
-			# print('predicted index',predicted_action_index)
-			if predicted_action_index == 0:
-				predicted_action_index = 1  # switch to wait
-			best_action = self.reward_action_tokenizer.index_word[predicted_action_index]
-		# print(best_action)
-		except:
-			print('failed to get prediction array ')
-		#    predict_array = self.model.predict(input)
-		#    print('prediction array: ', predict_array)
-		#    print('action dict: ', self.actiondict)
-		# best_action = act
-
-		if best_action == 'killrabbit':
-			self.thread.action_from_parent = 'kill rabbit'
-		if best_action == 'killraccoon':
-			self.thread.action_from_parent = 'kill raccoon'
-		if best_action == 'killgolem':
-			self.thread.action_from_parent = 'kill golem'
-
-		return best_action
-
-	def save_model(self):
-		# save model and architecture to single file
-		self.model.save("model.h5")
-		self.target_model.save("target_model.h5")
-		#model_json = self.model.to_json()
-		#with open("model.json", "w") as json_file:
-			#json_file.write(model_json)
-		print('wrote model to model.h5')
-
-		# also have to load and save weights
-		#self.model.save_weights('model_weights.h5')
-		#print('weights stored in model_weights.h5')
-
-	def load_model(self):
-		# load    model
-		self.model = load_model('model.h5')
-		self.target_model = load_model('target_model.h5')
-		#json_file = open('model.json', 'r')
-		#loaded_model_json = json_file.read()
-		#json_file.close()
-		# load weights too
-
-		#self.model = model_from_json(loaded_model_json)
-		#self.model.load_weights("model_weights.h5")
-		print('loaded model model.h5')
-
-	def replay(self):
-		# print('replay triggered')
-		batch_size = 4
-		if len(self.memory) < batch_size:
-			print('memory too short', len(self.memory))
-			return
-		samples = random.sample(self.memory, batch_size)
-		for sample in samples:
-			try:
-				state, action, reward, new_state, done = sample
-				target = self.target_model.predict(state)
-			except:
-				print('problem getting state action reward newstate from sample')
-			if done:
-				target[0][action] = reward
-			else:
-				##Q_future = max(self.target_model.predict(new_state)[0])
-				#newval = reward + Q_future * self.gamma
-				#target[0][action] = newval
-				t = self.target_model.predict(next_state)[0]
-				target[0][action] = reward + self.gamma * np.amax(t)
-			# target[0][action] = reward + self.gamma * t[np.argmax(a)]
-			self.model.fit(state, target, epochs=1, verbose=0)
-
-	def target_train(self):
-		# print('1')
-		weights = self.model.get_weights()
-		# print('2')
-		target_weights = self.target_model.get_weights()
-		# print('3')
-		for i in range(len(target_weights)):
-			target_weights[i] = weights[i] * self.tau + target_weights[i] * (1 - self.tau)
-		# print('4')
-		self.target_model.set_weights(target_weights)
-
-	# print('5')
 
 
 class EventThread(QtCore.QThread):
@@ -486,10 +192,12 @@ class Worldstate():
 		#selfstrings.append(self.mp)
 		selfstrings.append(self.room_name)
 		# selfstrings.append(self.room_description)
-		selfstrings.append(str(self.exits))
+		# selfstrings.append(str(self.exits))
+		selfstrings.append('objmonlist')
 		selfstrings.append(str(self.objmonlist))
 		# selfstrings.append(self.delaystr)
-		# selfstrings.append(self.hostile_str)
+		selfstrings.append('hostile_str')
+		selfstrings.append(self.hostile_str)
 		# selfstrings.append(self.damage_str)
 		# selfstrings.append(str(self.last_action))
 		return selfstrings
@@ -513,10 +221,10 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def initialize_encoders(self):
 		# initialize dictionaries
-		self.objmondict = ['rabbit', 'rabbits', 'raccoon', 'raccoons', 'book', 'gold']
+		self.objmondict = ['rabbit', 'raccoon']
 		self.exitdict = ['north', 'east', 'south', 'west']
 		self.room_name_dict = ['Limbo', 'Love', 'Brownhaven', 'Alley', 'Pawn', 'Path ', 'Petting']
-		self.actiondict = ['none', 'north', 'east', 'south', 'west', 'look']
+		self.actiondict = ['none','north', 'east', 'south', 'west']
 		self.hostiledict = ['rabbit','raccoon']
 
 		# self.objmondict = ['golem', 'golems', 'gold']
@@ -547,11 +255,8 @@ class MudBotClient(QtWidgets.QWidget):
 		self.initialize_rewards()
 
 	def initialize_rewards(self):
-		#rewards for actions in game
-		self.initialreward = 5
-		self.wrongexit = -15
-		self.wrongmonster = 0
-
+		self.killreward= 150
+		self.diepenalty = 150
 
 
 	def initialize_model(self):
@@ -565,11 +270,11 @@ class MudBotClient(QtWidgets.QWidget):
 		self.training_allowed = True
 		# self.training_allowed=False
 		self.epsilon_min = 0.05
-		self.epsilon_decay = 0.999
+		self.epsilon_decay = .999
 		#discount for future rewards
-		self.gamma = 0.99#0.99  # google uses 0.99 discount factor
+		self.gamma = 0 #0.99#0.99  # google uses 0.99 discount factor
 		self.tau = .01 #0.125 #1E-3 for soft update of target parameters
-		self.learning_rate = 0.000001 #learning rate
+		self.learning_rate = 0.0001 #learning rate
 		# create the model
 		self.model = self.create_model()
 		self.target_model = self.create_model()
@@ -605,12 +310,18 @@ class MudBotClient(QtWidgets.QWidget):
 		room_matrix = self.room_tokenizer.texts_to_matrix([state.room_name])
 		room_matrix = sum(room_matrix)
 		exit_matrix = self.exit_tokenizer.texts_to_matrix(state.exits)
+
 		if len(exit_matrix) == 0:
 			sum_exit_matrix = backup_sum_exit_matrix
 		else:
 			sum_exit_matrix = sum(exit_matrix)
 
-		hostile_matrix =  self.hostile_tokenizer.texts_to_matrix(state.hostile_str)
+		#print('exit_matrix check')
+		#print(state.exits)
+		#print(exit_matrix)
+		#print(sum_exit_matrix)
+
+		hostile_matrix = self.hostile_tokenizer.texts_to_matrix([state.hostile_str])
 		if len(hostile_matrix) == 0:
 			sum_hostile_matrix = backup_sum_hostile_matrix
 		else:
@@ -631,11 +342,12 @@ class MudBotClient(QtWidgets.QWidget):
 		#stop encoding actions for now
 		state_array = np.concatenate((hp_encoded,
 									  room_matrix,
-									  sum_exit_matrix,
-									  sum_objmon_matrix,
-									  sum_hostile_matrix
+									  #sum_exit_matrix,
+									  sum_objmon_matrix#,
+									  #sum_hostile_matrix
 									  ),
 									 axis=0)
+
 		return state_array
 
 	def decode_state(self, state_array):
@@ -690,14 +402,16 @@ class MudBotClient(QtWidgets.QWidget):
 		model = Sequential()
 		multiplier = self.state_multiplier
 		myinputdim = len(self.state_array) * multiplier  # state array includes actions
-		myoutputdim = len(self.actiondict) + 1  # outputs are actions, add one extra for unrecognized actions
+		myoutputdim = len(self.actiondict) #+ 1  # outputs are actions, add one extra for unrecognized actions
+		#self.actiondict = ['none', 'north', 'east', 'south', 'west']
 		print('input dims: ', myinputdim)
+		print('output dims: ', myoutputdim)
 
-		model.add(Dense(36, input_dim=myinputdim, activation='relu'))
+		model.add(Dense(5, input_dim=myinputdim, activation='relu'))
 		#model.add(Dense(768, activation='relu'))
-		model.add(Dense(36, activation='relu'))
+		model.add(Dense(5, activation='relu'))
 
-		model.add(Dense(myoutputdim, activation='softmax')) #can try softmax too
+		model.add(Dense(myoutputdim, activation='linear')) #can try softmax too
 		roptimizer = RMSprop(lr=self.learning_rate)
 		model.compile(optimizer=roptimizer, loss='mean_squared_error')
 
@@ -942,19 +656,20 @@ class MudBotClient(QtWidgets.QWidget):
 		# note we had to reshape the above inptu to use it, needs to be shape 1,352.
 		# print('input shape', input.shape)
 		# default action is to wait
-		best_action = 'look'
+		best_action = 'none'
 
 		try:
 
 			predict_list = list(self.model.predict(inputx)[0])
-			# print('predict_list',predict_list)
+			print('predict_list',predict_list)
 			predicted_action_index = predict_list.index(max(predict_list))
-			# print('predicted index',predicted_action_index)
-			if predicted_action_index == 0:
-				predicted_action_index = 1  # switch to wait
-			best_action = self.reward_action_tokenizer.index_word[predicted_action_index]
+			print('predicted index',predicted_action_index)
+			#if predicted_action_index == 0:
+			#	predicted_action_index = 1  # switch to wait
+			#best_action = self.reward_action_tokenizer.index_word[predicted_action_index]
+			best_action = self.actiondict[predicted_action_index]
 
-		# print(best_action)
+			print('model selected: ',best_action)
 		except:
 			print('failed to get prediction array ')
 		#    predict_array = self.model.predict(input)
@@ -989,6 +704,8 @@ class MudBotClient(QtWidgets.QWidget):
 		self.tn = telnetlib.Telnet(self.HOST, self.port)
 		# get the socket from telnetlib and feed it to the QtNetwork QTCSocket object!
 		self.tcpSocket.setSocketDescriptor(self.tn.sock.fileno())
+		# start timer
+		self.parsetimer = datetime.now()
 		self.login()
 
 	def closeSockets(self):
@@ -1082,6 +799,7 @@ class MudBotClient(QtWidgets.QWidget):
 		# now connect the output
 
 		self.tcpSocket.readyRead.connect(self.tcpSocketReadyReadEmitted)
+
 		# create widget/box to show input from user
 		self.lineInput = QtWidgets.QLineEdit()
 
@@ -1336,33 +1054,18 @@ class MudBotClient(QtWidgets.QWidget):
 		else:
 			event.ignore()
 	def parse_worldstate(self, txt):
-		# returns a worldstate object
-		# print('----------------oneliner----------------')
-		# print(txt)
-		# print('----------------parsed_state----------------')
+		# want to continuously parse and update the world state
+		# but only store and reset the world state once per second
+		newstate = self.world_state
 
-		#newstate = copy.deepcopy(self.world_state)
-		#try instead of a deep copy
-		newstate = Worldstate()
 
-		#pull in some info from the old state
-		try:
-			newstate.reward = self.world_state.reward
-			newstate.last_action = self.world_state.last_action
-			newstate.room_name = self.world_state.room_name
-			newstate.room_description = self.world_state.room_description
-			#newstate.objmonlist = self.world_state.objmonlist
 
-		except:
-			print('newstate didnt load correctly rom world_state')
-			pass
-		# consider reset of award
-		self.reward = self.reward + self.initialreward #give a baseline reward
 		#Reasont o reset reward is that the value of the action is determined by the immediate reward.
 		# state_n -> sate_n+1 due to action n causes reward r
 		# integral of r is good to evaluate overall agent, but the Q network should predict
 		# expected reward from each action, which should not be cumulative.
-		newstate.reward = self.reward
+		#for walker give +10 to start off. loses 10 for taking worn exit.
+		newstate.reward = newstate.reward + 10
 		status, room_name = self.get_room_name(txt)
 
 		if status == True:
@@ -1377,7 +1080,7 @@ class MudBotClient(QtWidgets.QWidget):
 				#tmpreward = self.reward + 0.001
 			# only give award when last action was not simply loooking around
 			# meant to encourage looking around as well as exploring
-				newstate.reward = self.reward
+				newstate.reward = newstate.reward
 
 		status, exitstr = self.get_exits_str(txt)
 		if status == True:
@@ -1396,6 +1099,7 @@ class MudBotClient(QtWidgets.QWidget):
 			hp, mp = self.parse_hpmpstr(hpmpstring)
 			newstate.hp = hp
 			newstate.mp = mp
+
 			'''
 			if newstate.hp < 50:
 				self.thread.action_from_parent = 'jump'
@@ -1410,13 +1114,13 @@ class MudBotClient(QtWidgets.QWidget):
 		status, hostile_str = self.get_hostile_str(txt)
 		if status == True:
 			newstate.hostile_str = hostile_str
-			print(hostile_str)
+			#print('hostile',hostile_str)
 
 		status, damage_str = self.got_hit_str(txt)
 		if status == True:
 			newstate.damage_str = damage_str
 
-		'''status, expstr = self.get_experience(txt)
+		status, expstr = self.get_experience(txt)
 		if status == True:
 			if self.oldExp == 0:  # not updated yet
 				self.oldExp = int(expstr)
@@ -1425,80 +1129,90 @@ class MudBotClient(QtWidgets.QWidget):
 
 		status, killrewardstr = self.get_kill_reward(txt)
 		if status == True:
-			self.reward = self.reward + self.killreward  # reward for killing a mosnter is big
-			newstate.reward = self.reward
+			newstate.reward = newstate.reward + 150  # reward for killing a mosnter is big
+			#newstate.reward = newstate.reward
 		#print('reward is: ', self.reward)
 		# print('last action is:',self.last_action)
 
 		status, hitrewardstr = self.get_hit_reward(txt)
+		# need to update hostile string here
+
 		if status == True:
 			#reward/penalty for engaging in combat
 			if newstate.hp < 50:
-				self.reward = self.reward - 50
-				newstate.reward=self.reward
+				newstate.reward = newstate.reward - 50
+				#newstate.reward=self.reward
 			elif newstate.hp > 90:
-				self.reward=self.reward + 40 * ((newstate.hp-90) / (35))
-				newstate.reward = self.reward
+				newstate.reward=newstate.reward + 40 * ((newstate.hp-90) / (35))
+				#newstate.reward = self.reward
 			# 50 - 100 scaling penalty
 			elif newstate.hp < 90:
 				#goes from 0 to -5 as health decreases
-				self.reward = self.reward - 40*((90 - newstate.hp)/ (40))
-				newstate.reward = self.reward
-		status, monstermissstring = self.get_monstermiss_reward(txt)
+				newstate.reward = newstate.reward - 40*((90 - newstate.hp)/ (40))
+				#newstate.reward = self.reward
+
+		status, monsterdiddamage = self.get_monsterhit_reward(txt)
 		if status == True:
+			newstate.hostilestr = monsterdiddamage
+
+		status, monstermissstring = self.get_monstermiss_reward(txt)
+		#need to update hostile string here
+		if status == True:
+			newstate.hostilestr = monsterdiddamage
 			# reward/penalty for engaging in combat
 			if newstate.hp < 50:
-				self.reward = self.reward - 50
-				newstate.reward = self.reward
+				newstate.reward = newstate.reward - 50
+				#newstate.reward = self.reward
 			elif newstate.hp > 80:
-				self.reward = self.reward + 40 * ((newstate.hp-80) / (35))
-				newstate.reward = self.reward
+				newstate.reward = senewstated + 40 * ((newstate.hp-80) / (35))
+				#newstate.reward = self.reward
 			# 50 - 100 scaling penalty
 			elif newstate.hp < 80:
 				# goes from 0 to -5 as health decreases
-				self.reward = self.reward - 40 * ((80 - newstate.hp) /40)
-				newstate.reward = self.reward
+				newstate.reward = newstate.reward - 40 * ((80 - newstate.hp) /40)
+				#newstate.reward = self.reward
 
 
 		# print('reward is: ', self.reward)
-		# print('last action is:',self.last_action)'''
+		# print('last action is:',self.last_action)
 
 		status, movepenaltystr = self.get_move_penalty(txt)
 		if status == True:
-			self.reward = self.reward - self.wrongexit #small negative rewar
-			newstate.reward = self.reward
+			newstate.reward = newstate.reward - 20#small negative rewar
+			print(newstate.reward)
+			#newstate.reward = self.reward
 
-		'''status, nomonsterpenaltystr = self.get_nomonster_penalty(txt)
+		status, nomonsterpenaltystr = self.get_nomonster_penalty(txt)
 		if status == True:
-			self.reward = self.reward -1  # small negative rewar
-			newstate.reward = self.reward
+			newstate.reward = newstate.reward  -1  # small negative rewar
+			#newstate.reward = self.reward
 
 		status, killedstr = self.get_killed_penalty(txt)
 		if status == True:
-			self.reward = self.reward - 150  #negative penalty for dying
-			newstate.reward = self.reward
+			newstate.reward = newstate.reward - 150  #negative penalty for dying
+			#newstate.reward = self.reward
 
 		# give nice bonus for ticking
 		if newstate.room_name == 'Order of Love':
 			if newstate.hp < self.maxhp:
 				# print('should be getting a bonus, are we?')
-				self.reward = self.reward + (self.maxhp-newstate.hp)/43 +0.05 #big positive reward for ticking, modulated by differential
-				newstate.reward = self.reward
+				newstate.reward = newstate.reward + (self.maxhp-newstate.hp)/43 +0.05 #big positive reward for ticking, modulated by differential
+				#newstate.reward = self.reward
 			elif newstate.hp < 60:
-				self.reward = self.reward + 2
+				newstate.reward = newstate.reward + 2
 				#self.thread.action_from_parent = 'jump'
-				newstate.reward = self.reward
+				#newstate.reward = self.reward
 
 			elif newstate.hp == self.maxhp:
-				self.reward = self.reward -.1 #small negative reward for spending too much time in tick room
-				newstate.reward = self.reward
+				newstate.reward = newstate.reward -.1 #small negative reward for spending too much time in tick room
+				#newstate.reward = self.reward
 
 		# give penalty for not  ticking
 		if newstate.room_name != 'Order of Love':
 			if newstate.hp < 60:
 
-				self.reward = self.reward - (60-newstate.hp)/43 -0.05 #big neg reward for not ticking, modulated by differential
-				newstate.reward = self.reward'''
+				newstate.reward = newstate.reward #- (60-newstate.hp)/43 -0.05 #big neg reward for not ticking, modulated by differential
+				#newstate.reward = self.reward
 
 
 
@@ -1507,6 +1221,12 @@ class MudBotClient(QtWidgets.QWidget):
 		# 'hostile_str': '', 'damage_str': '', 'reward': 0}
 
 		# return thenew state
+		#add penalty for nomove
+		if self.last_action[0] == 'none':
+			#print('penalty for no action')
+			newstate.reward = newstate.reward -21
+			#newstate.reward = self.reward
+
 		return newstate
 
 	def parse_hpmpstr(self, hpmpstring):
@@ -1527,8 +1247,14 @@ class MudBotClient(QtWidgets.QWidget):
 		return status, kexpstr
 
 	def get_monstermiss_reward(self, txt):
-		start_indicator = 'missed'
-		end_indicator = 'you'
+		start_indicator = 'The '
+		end_indicator = 'missed you'
+		status, kexpstr = self.pull_text(txt, start_indicator, end_indicator)
+		return status, kexpstr
+
+	def get_monsterhit_reward(self, txt):
+		start_indicator = 'The '
+		end_indicator = 'hit you for'
 		status, kexpstr = self.pull_text(txt, start_indicator, end_indicator)
 		return status, kexpstr
 
@@ -1573,6 +1299,8 @@ class MudBotClient(QtWidgets.QWidget):
 		objmondict = self.objmondict
 		objmonstr = objmonstr.replace('.', ' ')
 		objmonstr = objmonstr.replace(',', ' ')
+		objmonstr = objmonstr.replace('rabbits', 'rabbit')
+		objmonstr = objmonstr.replace('raccoons', 'raccoon')
 		word_list = objmonstr.split(' ')
 		objmonlist = []
 		for w in word_list:
@@ -1653,29 +1381,29 @@ class MudBotClient(QtWidgets.QWidget):
 		self.epsilon_graph.plot(steps, epsilon_array, pen=pen)
 
 	def evaluate_data(self):
-		#This function provides information on the current dataset
+		# This function provides information on the current dataset
 		print('Memory Size:', len(self.memory))
-		#calculate total possible number of states
-		#get one state
+		# calculate total possible number of states
+		# get one state
 		sample = random.sample(self.memory, 1)[0]
 		state, action, reward, new_state, done = sample
 
 		hp_states = self.maxhp
-		room_states = len(self.room_name_dict)+1
-		exit_states = 2**(len(self.exitdict)+1)
-		objectstates = 2**(len(self.objmondict)+1)
-		hostile = 2**(len(self.hostiledict)+1)
+		room_states = len(self.room_name_dict) + 1
+		exit_states = 1# 2 ** (len(self.exitdict) + 1)
+		objectstates = 2 ** (len(self.objmondict) + 1)
+		hostile = 1#2 ** (len(self.hostiledict) + 1)
 
-		total_possible_states = hp_states*room_states*exit_states*objectstates*hostile
+		total_possible_states = hp_states * room_states * exit_states * objectstates * hostile
 
-		#number of states should consider mutualy exclusive or not
+		# number of states should consider mutualy exclusive or not
 
-		#total possible states =
-				#hp states x
-				#room states x
-				#exits x
-				#objmon matrix x
-				#hostile_str
+		# total possible states =
+		# hp states x
+		# room states x
+		# exits x
+		# objmon matrix x
+		# hostile_str
 
 		'''
 		self.objmondict = ['rabbit', 'rabbits', 'raccoon', 'raccoons', 'book', 'gold']
@@ -1683,45 +1411,45 @@ class MudBotClient(QtWidgets.QWidget):
 		self.room_name_dict = ['Limbo', 'Love', 'Brownhaven', 'Alley', 'Pawn', 'Path ', 'Petting']
 		self.actiondict = ['none', 'north', 'east', 'south', 'west', 'look']
 		self.hostiledict = ['rabbit','raccoon']
-		
+
 			hp states = 125 
 			room states = 7+1 (mutually exclusive)
 			exit states =  2^(4+1) = 32	
 			objectstates = 2^(6+1) = 128 
 			hostile = 2^(2+1)  = 8
 			+1 above becaus enone is an option
-			
+
 			total states = 125 x 8 x 32 x 128 x 8 = 32768000
-			
+
 			simplify: remove 
-			
+
 		'''
 		'''#(hp_encoded, room_matrix, sum_exit_matrix, sum_objmon_matrix)
 		hp		R     R     R    R    R     R      R     R     E     E     E          
 		[0.448 0.    0.    0.    0.    1.    0.    0.    0.    0.    1.    1.
 			E      E     O     O     O     O     O     O    O 
- 			0.    0.    0.    0.    0.    0.    0.    0.    0.   ]'''
+			 0.    0.    0.    0.    0.    0.    0.    0.    0.   ]'''
 
-		total_game_states = total_possible_states/(len(self.exitdict)+1)
-		#fewer game states because exits in rooms are fixed
-		print('Total number of possible states: ',total_possible_states)
-		print('Likely actual game states ', total_game_states)
-		#each state will look like [hp,b,b,b,b,b,b,...] where b is either a 0 or a 1
+		#total_game_states = total_possible_states / (len(self.exitdict) + 1)
+		# fewer game states because exits in rooms are fixed
+		print('Total number of possible states: ', total_possible_states)
+		#print('Likely actual game states ', total_game_states)
+		# each state will look like [hp,b,b,b,b,b,b,...] where b is either a 0 or a 1
 		'''#example below:		
 		#(hp_encoded, room_matrix, sum_exit_matrix, sum_objmon_matrix)
 		hp		R     R     R    R    R     R      R     R     E     E     E          
 		[0.448 0.    0.    0.    0.    1.    0.    0.    0.    0.    1.    1.
 			E      E     O     O     O     O     O     O    O 
- 			0.    0.    0.    0.    0.    0.    0.    0.    0.   ]
- 			'''
+			 0.    0.    0.    0.    0.    0.    0.    0.    0.   ]
+			 '''
 		unique_states = set()
-		#now count each state
+		# now count each state
 		for m in self.memory:
 			state, action, reward, new_state, done = m
 			unique_states.add(tuple(state[0]))
-		print('Unique states in memory: ',len(unique_states))
-		percentage_mapped = 100*(len(unique_states)/total_game_states)
-		print('% of accessible game space in data: ',percentage_mapped, '%')
+		print('Unique states in memory: ', len(unique_states))
+		percentage_mapped = 100 * (len(unique_states) / total_possible_states)
+		print('% of accessible game space in data: ', percentage_mapped, '%')
 		print('If greater than 100%, estimates wrong or maybe float error on hp value')
 
 	def evaluate_model_loss(self):
@@ -1786,90 +1514,116 @@ class MudBotClient(QtWidgets.QWidget):
 
 			# print(socket_data)
 			txt = str(socket_data)[2:-1]
-			self.world_state_history.append(self.world_state)
-			# generate new state
-			old_world_state = self.world_state
-			newstate = self.parse_worldstate(txt)
-			self.world_state = newstate
-			# print('worldstate: ',self.world_state.state_to_string(),'reward: ',newstate.reward)
-			# print(len(self.world_state_history))
 
-			#check if player needs a reset
+
+
+			parsediff = datetime.now() - self.parsetimer
+			#continuously update state for 1 second
+			if parsediff.seconds <= 1:
+				self.world_state = self.parse_worldstate(txt)
+				#print('parse no update')
+			if parsediff.seconds > 1:
+				# reset timer
+				self.parsetimer = datetime.now()
+				# update current state new state
+				#one last parse
+				self.world_state = self.parse_worldstate(txt)
+				#print(self.world_state.state_to_string())
+				self.world_state_history.append(self.world_state)
+				old_world_state = self.world_state_history[-2]
+
+
+				# reset last action
+				#self.last_action = ['none']
+
+
+				# print('try decode')
+				# decode not functional yet
+				# self.decode_state(self.state_array)
+				# print('decode ok')
+
+				self.reward_array_history.append(self.encode_rewards(self.world_state))
+				print(self.world_state.reward)
+				self.epsilon_array.append(self.epsilon)
+				self.state_array_history.append(self.encode_state(self.world_state))
+				self.reward_history.append(np.array([self.world_state.reward]))  # update reward too. Note conversion to np.array
+				# print('worldstate: ',self.world_state.state_to_string(),'reward: ',newstate.reward)
+				# print(len(self.world_state_history))
+
+				# now reset award
+				# want to avoid messing with items being stored in lists
+				self.world_state = copy.deepcopy(self.world_state)
+				self.world_state.reward = 0
+
+				#plot every n steps
+				if self.step_counter % self.plot_interval == 0:
+					self.thread.eventState = -1 #pause action loop
+					self.plot_reward(self.reward_array_history)
+					self.plot_epsilon(self.epsilon_array)
+					self.thread.eventState = 0 #resume action loop
+				self.step_counter +=1
+				# self.objmondict = ['rabbit', 'raccoon',]
+				# self.exitdict = ['north', 'east', 'south', 'west']
+				# self.room_name_dict = ['Limbo', 'Love', 'Brownhaven', 'Alley', 'Pawn', 'Path ', 'Petting']
+				# self.actiondict = ['wait', 'north', 'east', 'south', 'west', 'killrabbit', 'killraccoon', 'look']
+				# print('[H. _. R. R. R. R. R. R. R. _. E. E. E. E. _. O. O. O. O. O. O. _. A. A. \nA. A. A. A. A. A.]')
+				# )
+				# print(self.state_array)
+				# print(len(self.state_array))
+
+				#print('world state is', self.state_array)
+				#print('action was', self.last_action, 'reward', self.reward)
+				# print(' [_. W. N. E. S. W. K. k. L.]')
+				# print('-',np.where(self.reward_array < 0, 1., 0.))
+				# print('[_. W. N. E. S. W. K. k. L.]')
+				# print(np.where(self.reward_array > 0, 1., 0.))
+
+				if len(self.state_array_history) > 2*self.state_multiplier:
+					# print('generating curr adn old states')
+					curr_state = self.reshape_x_and_combine(self.state_array_history[-self.state_multiplier:], self.state_multiplier)
+					old_state = self.reshape_x_and_combine(self.state_array_history[-2*self.state_multiplier:-self.state_multiplier], self.state_multiplier)
+					# encode action
+					# print('get action index',self.last_action[0])
+					# print('hmmm',self.actiondict.index(self.last_action[0]))
+					action_index = self.actiondict.index(self.last_action[0])
+					# print(action_index)
+					# print('store memory')
+					#need to encode the reward
+					#reward_to_store = self.encode_rewards(old_world_state) #reward needs to go with old state
+					reward_to_store = old_world_state.reward
+					#print(reward_to_store)
+
+					self.store_memory(old_state,
+									  action_index,
+									  reward_to_store,
+									  curr_state,
+									  False)  # done initially False?
+					# print('replay')
+					#set action loop to pause
+					if self.training_allowed == True:
+						self.thread.eventState = -1
+						try:
+
+							self.replay()
+							self.target_train()
+						except:
+							print('could not run replay and target_train successfully')
+						#resume actions
+						self.thread.eventState = 0
+
+
+				#reset world state
+				#don't reset to zero. use last
+				#self.world_state = Worldstate()
+
+
+			# check if player needs a reset
 			self.check_if_reset_needed()
-
-			self.state_array = self.encode_state(self.world_state)
-			#print('try decode')
-			#decode not functional yet
-			#self.decode_state(self.state_array)
-			#print('decode ok')
-			self.reward_array = self.encode_rewards(self.world_state)
-			self.reward_array_history.append(self.reward_array)
-			self.epsilon_array.append(self.epsilon)
-			#plot every n steps
-
-			if self.step_counter % self.plot_interval == 0:
-				self.thread.eventState = -1 #pause action loop
-				self.plot_reward(self.reward_array_history)
-				self.plot_epsilon(self.epsilon_array)
-				self.thread.eventState = 0 #resume action loop
-			self.step_counter +=1
-			# self.objmondict = ['rabbit', 'rabbits', 'raccoon', 'raccoons', 'book', 'gold']
-			# self.exitdict = ['north', 'east', 'south', 'west']
-			# self.room_name_dict = ['Limbo', 'Love', 'Brownhaven', 'Alley', 'Pawn', 'Path ', 'Petting']
-			# self.actiondict = ['wait', 'north', 'east', 'south', 'west', 'killrabbit', 'killraccoon', 'look']
-			# print('[H. _. R. R. R. R. R. R. R. _. E. E. E. E. _. O. O. O. O. O. O. _. A. A. \nA. A. A. A. A. A.]')
-			# )
-			# print(self.state_array)
-			# print(len(self.state_array))
-			self.state_array_history.append(self.state_array)
-			self.reward_history.append(np.array([self.reward]))  # update reward too. Note conversion to np.array
-			#print('world state is', self.state_array)
-			#print('action was', self.last_action, 'reward', self.reward)
-			# print(' [_. W. N. E. S. W. K. k. L.]')
-			# print('-',np.where(self.reward_array < 0, 1., 0.))
-			# print('[_. W. N. E. S. W. K. k. L.]')
-			# print(np.where(self.reward_array > 0, 1., 0.))
-
-			if len(self.state_array_history) > 2*self.state_multiplier:
-				# print('generating curr adn old states')
-				curr_state = self.reshape_x_and_combine(self.state_array_history[-self.state_multiplier:], self.state_multiplier)
-				old_state = self.reshape_x_and_combine(self.state_array_history[-2*self.state_multiplier:-self.state_multiplier], self.state_multiplier)
-				# encode action
-				# print('get action index',self.last_action[0])
-				# print('hmmm',self.actiondict.index(self.last_action[0]))
-				action_index = self.actiondict.index(self.last_action[0])
-				# print(action_index)
-				# print('store memory')
-				#need to encode the reward
-				#reward_to_store = self.encode_rewards(old_world_state) #reward needs to go with old state
-				reward_to_store = old_world_state.reward
-				print(reward_to_store)
-
-				self.store_memory(old_state,
-								  action_index,
-								  reward_to_store,
-								  curr_state,
-								  False)  # done initially False?
-				# print('replay')
-				#set action loop to pause
-				if self.training_allowed == True:
-					self.thread.eventState = -1
-					try:
-
-						self.replay()
-						self.target_train()
-					except:
-						print('could not run replay and target_train successfully')
-					#resume actions
-					self.thread.eventState = 0
-
-			# reset last action
-			self.last_action = ['none']
 			# clean text
-			txt = self.cleanText(txt)
-			self.display.append(txt)
+			self.display.append(self.cleanText(txt))
 			# scroll to bottom
 			self.display.verticalScrollBar().setValue(self.display.verticalScrollBar().maximum())
+
 		except:
 			print('------- tcpSocketReadyReadEmitted ----')
 			print(sys.exc_info()[0])
