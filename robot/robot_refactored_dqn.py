@@ -295,7 +295,7 @@ class MudBotClient(QtWidgets.QWidget):
 		#self.state_multiplier = 16 # stack multiple states to create memory
 		self.state_multiplier = 1  # stack multiple states to create memory
 		# initialize model training parameters
-		self.epsilon = 0.5  # threshold for action to be random, will decay to .05
+		self.epsilon = 1  # threshold for action to be random, will decay to .05
 		self.epsilon_array=[self.epsilon]
 		self.training_allowed = True
 		# self.training_allowed=False
@@ -317,8 +317,6 @@ class MudBotClient(QtWidgets.QWidget):
 		self.state_array = self.encode_state(self.world_state)
 		self.world_state_history = []
 		self.state_array_history = []
-		self.reward_history = []
-		self.reward_array_history = []
 		self.loss_history = []
 
 
@@ -350,13 +348,16 @@ class MudBotClient(QtWidgets.QWidget):
 				if state.last_action == 'none':
 					reward += 5
 
-		# add a penalty for starting combat while heatlh is lwo
+		# add a penalty for starting combat while health is low
 			if state.hp < self.maxhp/2:
 				if state.last_action == 'killrabit':
 						reward -= 10
 				elif state.last_action == 'killraccoon':
 						reward -= 10
-
+		# add a penalty for idle at full health
+			if state.hp == self.maxhp:
+				if state.last_action == 'none':
+					reward -= 5
 		return reward
 
 
@@ -452,15 +453,6 @@ class MudBotClient(QtWidgets.QWidget):
 	# self.room_name_dict = ['Limbo', 'Love', 'Brownhaven', 'Alley', 'Pawn', 'Path ', 'Petting']
 
 
-
-
-
-	def encode_rewards(self, state):
-		action_encoded = sum(self.reward_action_tokenizer.texts_to_matrix([state.last_action]))
-		# print('action',self.last_action, 'reward: ', state.reward, 'encoded act', action_encoded)
-		reward_array = state.reward * action_encoded
-		return reward_array
-
 	def create_model(self):
 		# https://towardsdatascience.com/reinforcement-learning-w-keras-openai-dqns-1eed3a5338c
 		model = Sequential()
@@ -469,9 +461,9 @@ class MudBotClient(QtWidgets.QWidget):
 		myoutputdim = len(self.actiondict) #+ 1  # outputs are actions, add one extra for unrecognized actions
 		print('input dims: ', myinputdim)
 
-		model.add(Dense(36, input_dim=myinputdim, activation='relu'))
+		model.add(Dense(2*myinputdim, input_dim=myinputdim, activation='relu'))
 		#model.add(Dense(768, activation='relu'))
-		model.add(Dense(36, activation='relu'))
+		model.add(Dense(myinputdim+myoutputdim+1, activation='relu'))
 
 		model.add(Dense(myoutputdim, activation='linear')) #can try softmax too
 		roptimizer = RMSprop(lr=self.learning_rate)
@@ -1029,22 +1021,12 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def save_data(self):
 		print('save data function called')
-
-		pickle.dump(self.state_array_history, open("Xdata.p", "wb"))
-		pickle.dump(self.reward_array_history, open("Ydata.p", "wb"))
 		pickle.dump(self.memory, open("memory.p", "wb"))
 		pickle.dump(self.epsilon_array, open("epsilon_array.p", "wb"))
 
 	def load_data(self):
 		print('load data function called')
-		self.state_array_history = pickle.load(open("Xdata.p", "rb"))
-
-		self.reward_array_history = pickle.load(open("Ydata.p", "rb"))
-		#update reward so training can resume
-		self.reward = self.decode_reward_array_history(self.reward_array_history)[-1]
-
 		self.memory = pickle.load(open("memory.p", "rb"))
-
 		self.epsilon_array = pickle.load(open("epsilon_array.p", "rb"))
 		#update epsilon so training can resume
 		self.epsilon = self.epsilon_array[-1]
@@ -1475,15 +1457,16 @@ class MudBotClient(QtWidgets.QWidget):
 			print('didnt find the text')
 		return status, pullstring
 
-	def decode_reward_array_history(self,reward_array_history):
-		tot_reward=np.sum(np.array(reward_array_history),axis=1)
-		return tot_reward
 
-	def plot_reward(self,reward_array_history):
-		decoded_reward = self.decode_reward_array_history(reward_array_history)
-		steps = np.arange(0,len(decoded_reward))
+	def plot_reward(self):
+		rewards = [] #get reward from memory
+		for i in np.arange(len(self.memory)):
+			(state, actionindex, reward, state2, done) = self.memory[i]
+			rewards.append(reward)
+		steps = np.arange(0,len(self.memory))
 		pen = pg.mkPen(color=(0, 0, 0))
-		self.reward_graph.plot(steps, decoded_reward, pen=pen)
+		self.reward_graph.plot(steps, rewards , pen=pen)
+
 	def plot_epsilon(self,epsilon_array):
 		steps = np.arange(0,len(epsilon_array))
 		pen = pg.mkPen(color=(0, 0, 0))
@@ -1599,8 +1582,8 @@ class MudBotClient(QtWidgets.QWidget):
 			self.target_train()
 		return xparam,results
 
-	def plot_model_loss(self,reward_array_history):
-		xparam,results = self.evaluate_model_loss()
+	def plot_model_loss(self):
+		xparam, results = self.evaluate_model_loss()
 		#now plot
 		pen = pg.mkPen(color=(0, 0, 0))
 		self.model_loss_graph.plot(xparam, results, pen=pen)
@@ -1643,32 +1626,18 @@ class MudBotClient(QtWidgets.QWidget):
 				#print(self.world_state.state_to_string())
 				self.world_state_history.append(self.world_state)
 				old_world_state = self.world_state_history[-2]
-
-
-
-
 				# print('try decode')
 				# decode not functional yet
 				# self.decode_state(self.state_array)
 				# print('decode ok')
-				self.reward_array = self.encode_rewards(self.world_state)
-				self.reward_array_history.append(self.reward_array)
 				self.epsilon_array.append(self.epsilon)
 				self.state_array = self.encode_state(self.world_state)
 				self.state_array_history.append(self.state_array)
-				self.reward_history.append(np.array([self.reward]))  # update reward too. Note conversion to np.array
-
-				# print('worldstate: ',self.world_state.state_to_string(),'reward: ',newstate.reward)
-				# print(len(self.world_state_history))
-
-
-
 
 				#plot every n steps
-
 				if self.step_counter % self.plot_interval == 0:
 					self.thread.eventState = -1 #pause action loop
-					self.plot_reward(self.reward_array_history)
+					self.plot_reward()
 					self.plot_epsilon(self.epsilon_array)
 					self.thread.eventState = 0 #resume action loop
 				self.step_counter +=1
@@ -1680,13 +1649,12 @@ class MudBotClient(QtWidgets.QWidget):
 				# )
 				# print(self.state_array)
 				# print(len(self.state_array))
-
 				#print('world state is', self.state_array)
 				#print('action was', self.last_action, 'reward', self.reward)
 				# print(' [_. W. N. E. S. W. K. k. L.]')
-				# print('-',np.where(self.reward_array < 0, 1., 0.))
-				# print('[_. W. N. E. S. W. K. k. L.]')
-				# print(np.where(self.reward_array > 0, 1., 0.))
+
+
+
 
 				if len(self.state_array_history) > 2*self.state_multiplier:
 					# print('generating curr adn old states')
