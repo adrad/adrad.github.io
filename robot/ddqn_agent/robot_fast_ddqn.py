@@ -283,7 +283,7 @@ class MudBotClient(QtWidgets.QWidget):
 		self.oldEXP = 0
 		self.plot_interval = 10
 		self.step_counter = 0
-		self.steps_per_episode = 100
+		self.steps_per_episode = 10
 		self.initialize_rewards()
 
 
@@ -787,8 +787,9 @@ class MudBotClient(QtWidgets.QWidget):
 		# setactionlooptopause
 		self.thread.eventState = -1
 		#log the player out
-		self.logout()
+
 		try:
+			self.logout()
 			self.copy_backup_file()
 		except:
 			print('backupfile copy issue')
@@ -802,7 +803,7 @@ class MudBotClient(QtWidgets.QWidget):
 				print('connection error, trying again')
 		print('Reconnecting complete. Resuming event loop')
 		# resumeactions
-		self.world_state.room_name = 'Order of Love'
+		#self.world_state.room_name = 'Order of Love'
 		self.thread.eventState = 0
 
 
@@ -1455,13 +1456,19 @@ class MudBotClient(QtWidgets.QWidget):
 
 
 	def plot_reward(self):
-		rewards = [] #get reward from memory
-		for i in np.arange(len(self.memory)):
-			(state, actionindex, reward, state2, done) = self.memory[i]
-			rewards.append(reward)
-		steps = np.arange(0,len(self.memory))
-		pen = pg.mkPen(color=(0, 0, 0))
-		self.reward_graph.plot(steps, rewards , pen=pen)
+		try:
+			rewards = [] #get reward from memory
+			for i in np.arange(len(self.memory)):
+				(state, actionindex, reward, state2, done) = self.memory[i]
+				rewards.append(reward)
+			steps = np.arange(0,len(self.memory))
+			pen = pg.mkPen(color=(0, 0, 0))
+			self.reward_graph.plot(steps, rewards , pen=pen)
+		except:
+			print('bug plotting reward')
+			print(sys.exc_info()[0])
+			print(sys.exc_info())
+
 
 	def plot_epsilon(self,epsilon_array):
 		steps = np.arange(0,len(epsilon_array))
@@ -1592,15 +1599,18 @@ class MudBotClient(QtWidgets.QWidget):
 			self.initialize_world_state()
 
 	def reset_player(self):
-			save_enabled = True
-			if save_enabled:
-				print('calling save data and save model')
-				self.save_data()
-				self.save_model()
-			try:
-				self.reset_player_file()
-			except:
-				print('issue with resetting the player file')
+		self.thread.eventState = -1  # set action loop to pause
+		save_enabled = True
+		if save_enabled:
+			print('calling save data and save model')
+			self.save_data()
+			self.save_model()
+		try:
+			self.reset_player_file()
+		except:
+			print('issue with resetting the player file')
+			print(sys.exc_info()[0])
+			print(sys.exc_info())
 
 
 	def tcpSocketReadyReadEmitted(self):
@@ -1663,16 +1673,19 @@ class MudBotClient(QtWidgets.QWidget):
 						try:
 							print('Episode Step Limit Reached')
 							#reset player
-							#self.reset_player()
-							self.world_state_history=[]
-							self.state_array_history=[]
+							self.reset_player()
+							self.world_state_history=[self.world_state_history[-2:-1]]
+							self.state_array_history=[self.state_array_history[-2:-1]]
 							self.world_state = Worldstate()
 							self.state_array = self.encode_state(self.world_state)
 							#self.world_state = Worldstate()
 							self.reward = 0
 							self.epsilon = 1
+							print('Episode RESET done')
 						except:
 							print('error  on episode reset')
+							print(sys.exc_info()[0])
+							print(sys.exc_info())
 					#self.step_counter =
 
 			self.check_if_reset_needed() # check if player needs a reset, and if so apply reset
