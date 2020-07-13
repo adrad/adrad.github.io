@@ -711,7 +711,7 @@ class MudBotClient(QtWidgets.QWidget):
 		# get the socket from telnetlib and feed it to the QtNetwork QTCSocket object!
 		self.tcpSocket.setSocketDescriptor(self.tn.sock.fileno())
 		# start timer
-		self.parsetimer = datetime.now()
+		#self.parsetimer = datetime.now()
 		self.login()
 
 	def closeSockets(self):
@@ -729,7 +729,12 @@ class MudBotClient(QtWidgets.QWidget):
 			#print('recreated tn object')
 			self.tcpSocket.setSocketDescriptor(self.tn.sock.fileno())
 			#print('set socket descriptor to telnet file')
-			return True
+			if self.tcpSocket.isValid():
+				print('valid socket')
+				return True
+			elif not self.tcpSocket.isValid():
+				print('bad socket')
+				return False
 		except:
 			print('fail')
 			return False
@@ -738,10 +743,13 @@ class MudBotClient(QtWidgets.QWidget):
 		# auto login, set flags (clear long)
 		# add b before strings to turn them into bytes
 		# txt = b'test' + b'\n' + b'asdfasdf' + b'\r\n' #+ 'clear long\r\n' + 'set auto' + '\r\n'
-		text = 'tester\nasdfasdf\n'
+		text = 'tester\nasdfasdf\nlook\n'
 		btext = text.encode('utf-8')
-		self.write_socket(QtCore.QByteArray(btext))
-		print('login info sent')
+		try:
+			self.write_socket(QtCore.QByteArray(btext))
+			print('login info sent')
+		except:
+			print('not able to log in')
 
 
 	def logout(self):
@@ -756,6 +764,7 @@ class MudBotClient(QtWidgets.QWidget):
 		#try skipping quit message for now
 		self.closeSockets()
 
+
 	def copy_backup_file(self):
 		src_dir = os.getcwd()
 		filedir = src_dir + "\\..\\..\\mordor\\player\\"
@@ -765,7 +774,7 @@ class MudBotClient(QtWidgets.QWidget):
 		fullpath = filedir + backupfile
 		copypath = filedir + copyfile
 		shutil.copyfile(fullpath, copypath)
-		print('Tester loaded from backup')
+		print('Tester loaded from backup', fullpath)
 
 	def reset_player_file(self):
 		#log the player out
@@ -774,6 +783,7 @@ class MudBotClient(QtWidgets.QWidget):
 			print('logged out')
 			self.copy_backup_file()
 			print('file copied')
+
 		except:
 			print('reset error')
 		success = False
@@ -781,6 +791,8 @@ class MudBotClient(QtWidgets.QWidget):
 			try:
 				print('trying to reconnect')
 				success = self.reconnect()
+				self.world_state.room_name ='Order'
+				print(self.world_state.state_to_string())
 			except:
 				print('connection error, trying again')
 
@@ -1581,7 +1593,10 @@ class MudBotClient(QtWidgets.QWidget):
 			self.world_state.room_name == 'Order'
 			self.reset_player()
 			self.world_state.refresh_transient_flags()
+			self.world_state.room_name == 'Order'
 			#self.initialize_world_state()
+		#print('resume event loop after reset')
+		self.thread.eventState = 0
 
 
 	def reset_player(self):
@@ -1600,17 +1615,23 @@ class MudBotClient(QtWidgets.QWidget):
 			print(sys.exc_info())
 
 	def write_socket(self,qbytemsg):
-		if self.tcpSocket.state() == QtNetwork.QAbstractSocket.ConnectedState:
-			print('sending info to socket ',qbytemsg)
+		if self.tcpSocket.isValid():
+			#print('thinks socket is valid')
 			self.tcpSocket.write(qbytemsg)
-		elif self.tcpSocket.state() == QtNetwork.QAbstractSocket.UnconnectedState:
-			print('socket not connected. Reconnect')
-			self.reconnect()
+			#print('write complete',qbytemsg)
+		elif not self.tcpSocket.isValid():
+			print('socket not valid')
+			print(qbytemsg)
+			#success = self.reconnect()
+			#print('reconnection went ok?',success)
+		else:
+			print('hmmm')
+
 
 
 	def tcpSocketReadyReadEmitted(self):
 		try:
-			if self.tcpSocket.state() == QtNetwork.QAbstractSocket.ConnectedState:
+			if self.tcpSocket.isValid():
 				socket_data = self.tcpSocket.readAll()
 				txt = ''
 				try:
@@ -1700,14 +1721,13 @@ class MudBotClient(QtWidgets.QWidget):
 								print(sys.exc_info()[0])
 								print(sys.exc_info())
 						#self.step_counter =
-					self.thread.eventState = -1
-					self.check_if_reset_needed()  # check if player needs a reset, and if so apply reset
-					self.thread.eventState = 0
 
+				self.thread.eventState = -1
+				self.check_if_reset_needed()  # check if player needs a reset, and if so apply reset
 
 				self.display.append(self.cleanText(txt)) #clean text before displaying
 				self.display.verticalScrollBar().setValue(self.display.verticalScrollBar().maximum()) # scroll to bottom
-			elif self.tcpSocket.state() == QtNetwork.QAbstractSocket.UnconnectedState:
+			elif not self.tcpSocket.isValid:
 				print('bro, not connected.')
 		except:
 			print('------- tcpSocketReadyReadEmitted ----')
