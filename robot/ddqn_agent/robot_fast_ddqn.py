@@ -69,8 +69,8 @@ class EventThread(QtCore.QThread):
 		#     actions.append('go '+e)
 		try:
 			self.eventState = -1  # start in off state. start bot button gets bot to idle state (0)
-			self.isWalking = 0
-			self.isFighting = 0  # initially not fighting
+			#self.isWalking = 0
+			#self.isFighting = 0  # initially not fighting
 			# status:
 			# global variables for event stuff
 			# self.hp = 60
@@ -81,15 +81,14 @@ class EventThread(QtCore.QThread):
 			# self.possibleTarget = 0  # no target
 			# self.target = 0  # no target
 
-			self.max_steps = 1000000
-			self.steps = 0
-			self.train_interval = 10000
-			self.steps_until_train = self.train_interval  # try increment of 32 steps may be enough not sure
+			#self.max_steps = 1000000
+			#self.steps = 0
+			#self.train_interval = 10000
+			#self.steps_until_train = self.train_interval  # try increment of 32 steps may be enough not sure
 
 			# protocol for sending a signal to the main thread with command:
 			# the main thread has a corresponding command to write to socket. check connection
 			self.mysignal.connect(self.parent.msgFromEventLoop)
-
 			# text = 'socket>*info \n\r\n\r'
 			# self.mysignal.emit(text)
 			# print('emitted without exception')
@@ -99,65 +98,45 @@ class EventThread(QtCore.QThread):
 			#  onestep>* takes a step
 
 			# initialize timers
-			logtimer = datetime.now()
-			exptimer = datetime.now()
-
-			# update current exp once
-			already_updated = 0
+			self.logtimer = datetime.now()
 
 			while self.exiting == False:
 				if self.eventState == 99:
 					print('quitting event Thread')
 					self.exiting = True
 				while self.eventState == 0:
-					currenttimer = datetime.now()
-
+					self.currenttimer = datetime.now()
 					# limit actions every 1 second for now
-					diff = currenttimer - logtimer
-					expdiff = currenttimer - exptimer
-
-					# self tick timer. go every half
-					# 0.5 seconds for code development
-					# change to 1 or 2 sec for real bot
-
-					# get milliseconds
-					# currently aim for 50 ms ticks
-					#get number of milliseconds
-
-					#slow version
-					#delta_milli = diff.seconds
-
-					#fast version - every 100 ms right now
-					delta_milli = diff.microseconds / 1000.0
-					delta_milli = delta_milli/100
-
-					if delta_milli >= 2:
-
+					self.diff = self.currenttimer - self.logtimer
+					#delta_milli = diff.microseconds / 100000 #may want to define a function to make this easier to workout
+					#delta = diff.seconds
+					self.delta = self.diff.microseconds/100000
+					if self.delta >= 2:
 						# act = random.choice(actions) #do a random action once per tick
 						# do action from parent
 						act = self.action_from_parent
-						self.steps_until_train = self.steps_until_train - 1
+						#self.steps_until_train = self.steps_until_train - 1
 						# print('action is',act)
 						if act != 'none':  # if none command do nothing
 							cmd = 'socket>*' + act + ' \n'
 							self.mysignal.emit(cmd)
-							self.steps = self.steps + 1
+							#self.steps = self.steps + 1
 
-							if self.steps > self.max_steps:
-								self.eventState = 99
-								print('reached max steps')
+							#if self.steps > self.max_steps:
+							#	self.eventState = 99
+							#	print('reached max steps')
 
 						elif act == 'none':  # send a blank line, needed to get reward for waiting
 							cmd = 'socket>*' + ' \n'
 							self.mysignal.emit(cmd)
-							self.steps = self.steps + 1
+							#self.steps = self.steps + 1
 
 						# self.emit(QtCore.SIGNAL("output(QString)"), cmd)
 						newcmd = 'request_action>*'
 						self.mysignal.emit(newcmd)
-						logtimer = datetime.now()
+						self.logtimer = datetime.now()
 
-					if self.steps_until_train <= 0:
+					'''if self.steps_until_train <= 0:
 						traincmd = 'train_model>*'
 						self.mysignal.emit(traincmd)
 						self.steps_until_train = self.train_interval  # train every 160 steps, after initial training period.
@@ -166,7 +145,7 @@ class EventThread(QtCore.QThread):
 						# update reward
 						cmd = 'socket>*' + 'score' + ' \n\r'
 						self.mysignal.emit(cmd)
-						exptimer = datetime.now()
+						exptimer = datetime.now()'''
 
 
 		except:
@@ -283,7 +262,7 @@ class MudBotClient(QtWidgets.QWidget):
 		self.oldEXP = 0
 		self.plot_interval = 10
 		self.step_counter = 0
-		self.steps_per_episode = 10
+		self.steps_per_episode = 100
 		self.initialize_rewards()
 
 
@@ -361,6 +340,8 @@ class MudBotClient(QtWidgets.QWidget):
 		# add a penalty for idle at full health
 			if state.hp == self.maxhp:
 				if state.last_action == 'none':
+					reward -= 5
+				if state.last_action == 'look':
 					reward -= 5
 		return reward
 
@@ -733,9 +714,12 @@ class MudBotClient(QtWidgets.QWidget):
 		self.login()
 
 	def closeSockets(self):
-		# close the socket
-		self.tn.close()
-		#self.tcpSocket.close() doesnt work
+		try:
+			# close the socket
+			self.tn.close()
+			#self.tcpSocket.close() doesnt work
+		except:
+			print('unable to close tn socket unable to close telnet socket')
 
 	def reconnect(self):
 		try:
@@ -756,6 +740,7 @@ class MudBotClient(QtWidgets.QWidget):
 		text = 'tester\nasdfasdf\r\n'
 		btext = text.encode('utf-8')
 		self.write_socket(QtCore.QByteArray(btext))
+		print('login info sent')
 
 
 	def logout(self):
@@ -773,6 +758,7 @@ class MudBotClient(QtWidgets.QWidget):
 		src_dir = os.getcwd()
 		filedir = src_dir + "\\..\\..\\mordor\\player\\"
 		backupfile = 'Tester_backup'
+		#backupfile= 'Tester_limbotesting'
 		copyfile = 'Tester'
 		fullpath = filedir + backupfile
 		copypath = filedir + copyfile
@@ -783,17 +769,21 @@ class MudBotClient(QtWidgets.QWidget):
 		#log the player out
 		try:
 			self.logout()
+			print('logged out')
 			self.copy_backup_file()
+			print('file copied')
 		except:
 			print('reset error')
 		success = False
 		while not success:
 			try:
+				print('trying to reconnect')
 				success = self.reconnect()
 			except:
 				print('connection error, trying again')
 
 		try:#print('Reconnecting complete. Now logging in')
+			print('try to log in')
 			self.login()
 		except:
 			print('could not log in')
@@ -1586,11 +1576,14 @@ class MudBotClient(QtWidgets.QWidget):
 		if self.world_state.room_name == 'Limbo':
 			# after dying reset the player file (deals with de-leveling)
 			print('time to reset character, player in Limbo. Reset to Order')
+			self.world_state.room_name == 'Order'
 			self.reset_player()
+			self.world_state.refresh_transient_flags()
 			#self.initialize_world_state()
 
+
 	def reset_player(self):
-		self.thread.eventState = -1  # set action loop to pause
+		#self.thread.eventState = -1  # set action loop to pause
 		save_enabled = True
 		if save_enabled:
 			print('calling save data and save model')
@@ -1598,6 +1591,7 @@ class MudBotClient(QtWidgets.QWidget):
 			self.save_model()
 		try:
 			self.reset_player_file()
+			#self.world_state.refresh_transient_flags()
 		except:
 			print('issue with resetting the player file')
 			print(sys.exc_info()[0])
@@ -1605,6 +1599,7 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def write_socket(self,qbytemsg):
 		if self.tcpSocket.state() == QtNetwork.QAbstractSocket.ConnectedState:
+			print('sending info to socket ',qbytemsg)
 			self.tcpSocket.write(qbytemsg)
 		elif self.tcpSocket.state() == QtNetwork.QAbstractSocket.UnconnectedState:
 			print('socket not connected. Reconnect')
@@ -1613,85 +1608,105 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def tcpSocketReadyReadEmitted(self):
 		try:
-			socket_data = self.tcpSocket.readAll()
-			txt = str(socket_data)[2:-1]
-			parsediff = datetime.now() - self.parsetimer
-			if parsediff.seconds <= .1: #continuously update state for 1 second
-				self.world_state = self.parse_worldstate(txt)
-			if parsediff.seconds > .1: #after one second store the world state, and reset some state parameters
-				self.parsetimer = datetime.now() # reset timer
-				self.world_state = self.parse_worldstate(txt) #one last parse
-				self.world_state_history.append(self.world_state)
-				old_world_state = self.world_state_history[-2]
-				# print('try decode')
-				# decode not functional yet
-				# self.decode_state(self.state_array) # print('decode ok')
-				self.epsilon_array.append(self.epsilon)
-				self.state_array = self.encode_state(self.world_state)
-				self.state_array_history.append(self.state_array)
+			if self.tcpSocket.state() == QtNetwork.QAbstractSocket.ConnectedState:
+				socket_data = self.tcpSocket.readAll()
+				txt = ''
+				try:
+					txt = str(socket_data)[2:-1] #if tryign to read from socket to soon, socket data will be empty
+				except:
+					print('socket_data: ',socket_data)
+				#parsediff = datetime.now() - self.parsetimer
+				#pdelta = parsediff.microseconds / 100000
+				#try using the delta in the thread
 
-				if len(self.state_array_history) > 2*self.state_multiplier:
-					# print('generating curr adn old states')
-					curr_state_array = self.reshape_x_and_combine(self.state_array_history[-self.state_multiplier:], self.state_multiplier)
-					old_state_array = self.reshape_x_and_combine(self.state_array_history[-2*self.state_multiplier:-self.state_multiplier], self.state_multiplier)
-					action_index = self.actiondict.index(self.last_action[0])
-					reward_to_store = self.calculate_reward_from_state(old_world_state)
-					self.reward += reward_to_store
-					print(self.reward)
-					self.store_memory(old_state_array,
-									  action_index,
-									  self.reward,
-									  curr_state_array,
-									  False)  # done initially False?
-					if self.training_allowed == True:
-						self.thread.eventState = -1 #set action loop to pause
+				pdelta = self.thread.delta
+				if pdelta <= 1: #continuously update state for 1 second
+					self.world_state = self.parse_worldstate(txt)
+				if pdelta > 1: #after one second store the world state, and reset some state parameters
+					#self.parsetimer = datetime.now() # reset timer
+					self.world_state = self.parse_worldstate(txt) #one last parse
+					self.world_state_history.append(self.world_state)
+					old_world_state = self.world_state_history[-2]
+					# print('try decode')
+					# decode not functional yet
+					# self.decode_state(self.state_array) # print('decode ok')
+					self.epsilon_array.append(self.epsilon)
+					self.state_array = self.encode_state(self.world_state)
+					self.state_array_history.append(self.state_array)
+
+					if len(self.state_array_history) > 2*self.state_multiplier:
+
+						# print('generating curr adn old states')
+						curr_state_array = self.reshape_x_and_combine(self.state_array_history[-self.state_multiplier:], self.state_multiplier)
+						old_state_array = self.reshape_x_and_combine(self.state_array_history[-2*self.state_multiplier:-self.state_multiplier], self.state_multiplier)
+						action_index = self.actiondict.index(self.last_action[0])
+						reward_to_store = self.calculate_reward_from_state(old_world_state)
+						self.reward += reward_to_store
+						print(self.reward)
+						print('store memory')
+						self.store_memory(old_state_array,
+										  action_index,
+										  self.reward,
+										  curr_state_array,
+										  False)  # done initially False?
+						if self.training_allowed == True:
+							self.thread.eventState = -1 #set action loop to pause
+							try:
+								self.replay()
+								self.target_train()
+							except:
+								print('could not run replay and target_train successfully')
+							self.thread.eventState = 0 #resume actions
+					#Partially reset world state. Also partially reset last_action
+					#self.world_state.refresh_reward() no reward reset here
+					self.world_state.refresh_transient_flags()
+					self.last_action = ['none'] #may want to drop this
+
+					# plot every n steps
+					if self.step_counter % self.plot_interval == 0:
+						self.thread.eventState = -1  # pause action loop
 						try:
-							self.replay()
-							self.target_train()
+							print('attempt to plot')
+							self.plot_reward()
+							self.plot_epsilon(self.epsilon_array)
 						except:
-							print('could not run replay and target_train successfully')
-						self.thread.eventState = 0 #resume actions
-				#Partially reset world state. Also partially reset last_action
-				#self.world_state.refresh_reward() no reward reset here
-				self.world_state.refresh_transient_flags()
-				self.last_action = ['none'] #may want to drop this
+							print('could not plot')
+						self.thread.eventState = 0  # resume action loop
+					self.step_counter += 1
 
-				# plot every n steps
-				if self.step_counter % self.plot_interval == 0:
-					self.thread.eventState = -1  # pause action loop
-					self.plot_reward()
-					self.plot_epsilon(self.epsilon_array)
-					self.thread.eventState = 0  # resume action loop
-				self.step_counter += 1
+					#reset episode every n steps
+					if self.step_counter % self.steps_per_episode == 0:
+						while self.epsilon < .95:
+							try:
+								print('Episode Step Limit Reached')
+								#reset player
+								self.thread.eventState = -1
+								self.reset_player()
+								self.world_state.refresh_transient_flags()
+								self.world_state_history=[self.world_state_history[-2:-1]]
+								self.state_array_history=[self.state_array_history[-2:-1]]
+								self.world_state = Worldstate()
+								self.state_array = self.encode_state(self.world_state)
+								#self.world_state = Worldstate()
+								self.reward = 0
+								self.epsilon = 1
+								print('Episode RESET done')
+								self.thread.eventState = 0
 
-				#reset episode every n steps
-				if self.step_counter % self.steps_per_episode == 0:
-					while self.epsilon < .95:
-						try:
-							print('Episode Step Limit Reached')
-							#reset player
-							self.thread.eventState = -1
-							self.reset_player()
-							self.world_state_history=[self.world_state_history[-2:-1]]
-							self.state_array_history=[self.state_array_history[-2:-1]]
-							self.world_state = Worldstate()
-							self.state_array = self.encode_state(self.world_state)
-							#self.world_state = Worldstate()
-							self.reward = 0
-							self.epsilon = 1
-							print('Episode RESET done')
-							self.thread.eventState = 0
+							except:
+								print('error  on episode reset')
+								print(sys.exc_info()[0])
+								print(sys.exc_info())
+						#self.step_counter =
+					self.thread.eventState = -1
+					self.check_if_reset_needed()  # check if player needs a reset, and if so apply reset
+					self.thread.eventState = 0
 
-						except:
-							print('error  on episode reset')
-							print(sys.exc_info()[0])
-							print(sys.exc_info())
-					#self.step_counter =
-			self.thread.eventState = -1
-			self.check_if_reset_needed() # check if player needs a reset, and if so apply reset
-			self.thread.eventState = 0
-			self.display.append(self.cleanText(txt)) #clean text before displaying
-			self.display.verticalScrollBar().setValue(self.display.verticalScrollBar().maximum()) # scroll to bottom
+
+				self.display.append(self.cleanText(txt)) #clean text before displaying
+				self.display.verticalScrollBar().setValue(self.display.verticalScrollBar().maximum()) # scroll to bottom
+			elif self.tcpSocket.state() == QtNetwork.QAbstractSocket.UnconnectedState:
+				print('bro, not connected.')
 		except:
 			print('------- tcpSocketReadyReadEmitted ----')
 			print(sys.exc_info()[0])
