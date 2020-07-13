@@ -54,7 +54,8 @@ class EventThread(QtCore.QThread):
 		self.parent = parent
 		# QtCore.QThread.__init__(self, parent)
 		self.exiting = False
-		self.action_from_parent = 'look'
+		self.action_from_parent = 'none'
+		self.delta = 0
 
 	def begin(self):
 		#self.start()
@@ -737,7 +738,7 @@ class MudBotClient(QtWidgets.QWidget):
 		# auto login, set flags (clear long)
 		# add b before strings to turn them into bytes
 		# txt = b'test' + b'\n' + b'asdfasdf' + b'\r\n' #+ 'clear long\r\n' + 'set auto' + '\r\n'
-		text = 'tester\nasdfasdf\r\n'
+		text = 'tester\nasdfasdf\n'
 		btext = text.encode('utf-8')
 		self.write_socket(QtCore.QByteArray(btext))
 		print('login info sent')
@@ -747,11 +748,12 @@ class MudBotClient(QtWidgets.QWidget):
 		# auto login, set flags (clear long)
 		# add b before strings to turn them into bytes
 		# txt = b'test' + b'\n' + b'asdfasdf' + b'\r\n' #+ 'clear long\r\n' + 'set auto' + '\r\n'
-		text = '\nquit\r\n'
-		btext = text.encode('utf-8')
-		self.write_socket(QtCore.QByteArray(btext))
-		time.sleep(1) #pause to let server close connection
-		print('resumed after pause')
+		#text = '\nquit\r\n'
+		#btext = text.encode('utf-8')
+		#self.write_socket(QtCore.QByteArray(btext))
+		#time.sleep(1) #pause to let server close connection
+		#print('resumed after pause')
+		#try skipping quit message for now
 		self.closeSockets()
 
 	def copy_backup_file(self):
