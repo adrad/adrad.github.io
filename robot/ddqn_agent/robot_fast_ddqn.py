@@ -523,7 +523,7 @@ class MudBotClient(QtWidgets.QWidget):
 			msg = socketString[1]
 			# write to socket
 			bmsg = msg.encode('utf-8')
-			self.tcpSocket.write(QtCore.QByteArray(bmsg))
+			self.write_socket(QtCore.QByteArray(bmsg))
 			self.display.append("EventLoop>" + msg)
 
 		elif str(qstring).find('request_action>*') != -1:
@@ -734,20 +734,16 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def closeSockets(self):
 		# close the socket
-
-		# pause to let socket complete
 		self.tn.close()
-		time.sleep(1)
-		#self.tcpSocket.abort()
+		#self.tcpSocket.close() doesnt work
 
 	def reconnect(self):
 		try:
+			self.closeSockets()
 			self.tn = telnetlib.Telnet(self.HOST, self.port)
-			print('recreated tn object')
+			#print('recreated tn object')
 			self.tcpSocket.setSocketDescriptor(self.tn.sock.fileno())
-			print('set socket descriptor to telnet file')
-			self.login()
-			print('logged in')
+			#print('set socket descriptor to telnet file')
 			return True
 		except:
 			print('fail')
@@ -759,7 +755,7 @@ class MudBotClient(QtWidgets.QWidget):
 		# txt = b'test' + b'\n' + b'asdfasdf' + b'\r\n' #+ 'clear long\r\n' + 'set auto' + '\r\n'
 		text = 'tester\nasdfasdf\r\n'
 		btext = text.encode('utf-8')
-		self.tcpSocket.write(QtCore.QByteArray(btext))
+		self.write_socket(QtCore.QByteArray(btext))
 
 
 	def logout(self):
@@ -768,9 +764,9 @@ class MudBotClient(QtWidgets.QWidget):
 		# txt = b'test' + b'\n' + b'asdfasdf' + b'\r\n' #+ 'clear long\r\n' + 'set auto' + '\r\n'
 		text = '\nquit\r\n'
 		btext = text.encode('utf-8')
-
-		self.tcpSocket.write(QtCore.QByteArray(btext))
-
+		self.write_socket(QtCore.QByteArray(btext))
+		time.sleep(1) #pause to let server close connection
+		print('resumed after pause')
 		self.closeSockets()
 
 	def copy_backup_file(self):
@@ -784,28 +780,23 @@ class MudBotClient(QtWidgets.QWidget):
 		print('Tester loaded from backup')
 
 	def reset_player_file(self):
-		# setactionlooptopause
-		self.thread.eventState = -1
 		#log the player out
-
 		try:
 			self.logout()
 			self.copy_backup_file()
 		except:
-			print('backupfile copy issue')
-		#log the player back in
-		print('logging in')
+			print('reset error')
 		success = False
 		while not success:
 			try:
 				success = self.reconnect()
 			except:
 				print('connection error, trying again')
-		print('Reconnecting complete. Resuming event loop')
-		# resumeactions
-		#self.world_state.room_name = 'Order of Love'
-		self.thread.eventState = 0
 
+		try:#print('Reconnecting complete. Now logging in')
+			self.login()
+		except:
+			print('could not log in')
 
 
 	def initUI(self):
@@ -972,7 +963,7 @@ class MudBotClient(QtWidgets.QWidget):
 		action = action + ' \n'
 		bmsg = action.encode('utf-8')
 
-		self.tcpSocket.write(QtCore.QByteArray(bmsg))
+		self.write_socket(QtCore.QByteArray(bmsg))
 
 
 	def logText(self):
@@ -1001,7 +992,7 @@ class MudBotClient(QtWidgets.QWidget):
 		txt = txt.replace(';', '\r\n')
 		btxt = txt.encode('utf-8')
 
-		self.tcpSocket.write(QtCore.QByteArray(btxt))
+		self.write_socket(QtCore.QByteArray(btxt))
 		# self.display.append("client")
 		self.display.append("Client>" + txt)
 		self.lineInput.clear()
@@ -1596,7 +1587,7 @@ class MudBotClient(QtWidgets.QWidget):
 			# after dying reset the player file (deals with de-leveling)
 			print('time to reset character, player in Limbo. Reset to Order')
 			self.reset_player()
-			self.initialize_world_state()
+			#self.initialize_world_state()
 
 	def reset_player(self):
 		self.thread.eventState = -1  # set action loop to pause
@@ -1611,6 +1602,13 @@ class MudBotClient(QtWidgets.QWidget):
 			print('issue with resetting the player file')
 			print(sys.exc_info()[0])
 			print(sys.exc_info())
+
+	def write_socket(self,qbytemsg):
+		if self.tcpSocket.state() == QtNetwork.QAbstractSocket.ConnectedState:
+			self.tcpSocket.write(qbytemsg)
+		elif self.tcpSocket.state() == QtNetwork.QAbstractSocket.UnconnectedState:
+			print('socket not connected. Reconnect')
+			self.reconnect()
 
 
 	def tcpSocketReadyReadEmitted(self):
@@ -1668,11 +1666,11 @@ class MudBotClient(QtWidgets.QWidget):
 
 				#reset episode every n steps
 				if self.step_counter % self.steps_per_episode == 0:
-
 					while self.epsilon < .95:
 						try:
 							print('Episode Step Limit Reached')
 							#reset player
+							self.thread.eventState = -1
 							self.reset_player()
 							self.world_state_history=[self.world_state_history[-2:-1]]
 							self.state_array_history=[self.state_array_history[-2:-1]]
@@ -1682,13 +1680,16 @@ class MudBotClient(QtWidgets.QWidget):
 							self.reward = 0
 							self.epsilon = 1
 							print('Episode RESET done')
+							self.thread.eventState = 0
+
 						except:
 							print('error  on episode reset')
 							print(sys.exc_info()[0])
 							print(sys.exc_info())
 					#self.step_counter =
-
+			self.thread.eventState = -1
 			self.check_if_reset_needed() # check if player needs a reset, and if so apply reset
+			self.thread.eventState = 0
 			self.display.append(self.cleanText(txt)) #clean text before displaying
 			self.display.verticalScrollBar().setValue(self.display.verticalScrollBar().maximum()) # scroll to bottom
 		except:
