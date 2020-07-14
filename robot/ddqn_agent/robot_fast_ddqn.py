@@ -261,9 +261,9 @@ class MudBotClient(QtWidgets.QWidget):
 	def initialize_self(self):
 		self.maxhp = 125
 		self.oldEXP = 0
-		self.plot_interval = 10
+		self.plot_interval = 250
 		self.step_counter = 0
-		self.steps_per_episode = 100
+		self.steps_per_episode = 250
 		self.initialize_rewards()
 
 
@@ -275,7 +275,7 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def initialize_model(self):
 		#initialize memory
-		self.memory = deque(maxlen=10000)
+		self.memory = deque(maxlen=100000)
 		#self.state_multiplier = 16 # stack multiple states to create memory
 		self.state_multiplier = 1  # stack multiple states to create memory
 		# initialize model training parameters
@@ -333,17 +333,18 @@ class MudBotClient(QtWidgets.QWidget):
 					reward += 5
 
 		# add a penalty for starting combat while health is low
-			if state.hp < self.maxhp/2:
-				if state.last_action == 'killrabit':
-						reward -= 10
-				elif state.last_action == 'killraccoon':
-						reward -= 10
+		if state.hp < self.maxhp/2:
+			if state.last_action == 'killrabit':
+					reward -= 10
+			elif state.last_action == 'killraccoon':
+					reward -= 10
 		# add a penalty for idle at full health
-			if state.hp == self.maxhp:
-				if state.last_action == 'none':
-					reward -= 5
-				if state.last_action == 'look':
-					reward -= 5
+		if state.hp == self.maxhp:
+			print(state.last_action)
+			if state.last_action == 'none':
+				reward -= 5
+			if state.last_action == 'look':
+				reward -= 5
 		return reward
 
 
