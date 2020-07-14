@@ -70,6 +70,7 @@ class EventThread(QtCore.QThread):
 		#     actions.append('go '+e)
 		try:
 			self.eventState = -1  # start in off state. start bot button gets bot to idle state (0)
+			self.ms_per_tick = 25
 			#self.isWalking = 0
 			#self.isFighting = 0  # initially not fighting
 			# status:
@@ -112,7 +113,7 @@ class EventThread(QtCore.QThread):
 					#delta_milli = diff.microseconds / 100000 #may want to define a function to make this easier to workout
 					#delta = diff.seconds
 					#self.delta = self.diff.microseconds/100000
-					self.delta = self.diff.microseconds / 10000 #should now be 10 ms per tick
+					self.delta = self.diff.microseconds / (1000*self.ms_per_tick) #should now be 25 ms per tick
 					if self.delta >= 2:
 						# act = random.choice(actions) #do a random action once per tick
 						# do action from parent
@@ -278,17 +279,17 @@ class MudBotClient(QtWidgets.QWidget):
 		#initialize memory
 		self.memory = deque(maxlen=100000)
 		#self.state_multiplier = 16 # stack multiple states to create memory
-		self.state_multiplier = 1  # stack multiple states to create memory
+		self.state_multiplier = 8  # stack multiple states to create memory
 		# initialize model training parameters
 		self.epsilon = 1  # threshold for action to be random, will decay to .05
 		self.epsilon_array=[self.epsilon]
 		self.training_allowed = True
 		# self.training_allowed=False
 		self.epsilon_min = 0.05
-		self.epsilon_decay = 0.99
+		self.epsilon_decay = 0.995
 		#discount for future rewards
 		self.gamma = 0.99#0.99  # google uses 0.99 discount factor
-		self.tau = .01 #0.125 #1E-3 for soft update of target parameters
+		self.tau = .001 #0.125 #1E-3 for soft update of target parameters
 		self.learning_rate = 0.0001 #learning rate
 		# create the model
 		self.model = self.create_model()
@@ -368,7 +369,9 @@ class MudBotClient(QtWidgets.QWidget):
 		#print(state.exits)
 		#print(exit_matrix)
 		#print(sum_exit_matrix)
+		#print('state encoder hostile: ',state.hostile_str)
 		hostile_matrix = self.hostile_tokenizer.texts_to_matrix([state.hostile_str])
+		#print('hostile matrix:',hostile_matrix)
 		if len(hostile_matrix) == 0:
 			sum_hostile_matrix = backup_sum_hostile_matrix
 		else:
@@ -1111,7 +1114,6 @@ class MudBotClient(QtWidgets.QWidget):
 			hp, mp = self.parse_hpmpstr(hpmpstring)
 			newstate.hp = hp
 			newstate.mp = mp
-
 			'''
 			if newstate.hp < 50:
 				self.thread.action_from_parent = 'jump'
@@ -1167,11 +1169,13 @@ class MudBotClient(QtWidgets.QWidget):
 		status, monsterdiddamage = self.get_monsterhit_reward(txt)
 		if status == True:
 			newstate.hostilestr = monsterdiddamage
+			print('hostilestr', newstate.hostilestr)
 
 		status, monstermissstring = self.get_monstermiss_reward(txt)
 		#need to update hostile string here
 		if status == True:
 			newstate.hostilestr = monsterdiddamage
+			print('hostilestr',newstate.hostilestr)
 			# reward/penalty for engaging in combat
 			if newstate.hp < 50:
 				self.reward = self.reward - 50
@@ -1276,6 +1280,8 @@ class MudBotClient(QtWidgets.QWidget):
 		status, damage_str = self.got_hit_str(txt)
 		if status == True:
 			newstate.damage_str = damage_str
+			newstate.hostile_str = hostile_str
+			#print('damagestr', damage_str)
 
 		status, expstr = self.get_experience(txt)
 		if status == True:
@@ -1291,6 +1297,7 @@ class MudBotClient(QtWidgets.QWidget):
 		if status == True:
 			newstate.hit_monster_reward_string = hitrewardstr
 			newstate.hit_monster_reward_flag = True
+
 
 		status, monsterdiddamage = self.get_monsterhit_reward(txt)
 		if status == True:
@@ -1675,14 +1682,15 @@ class MudBotClient(QtWidgets.QWidget):
 										  self.reward,
 										  curr_state_array,
 										  False)  # done initially False?
-						if self.training_allowed == True:
-							self.thread.eventState = -1 #set action loop to pause
-							try:
-								self.replay()
-								self.target_train()
-							except:
-								print('could not run replay and target_train successfully')
-							self.thread.eventState = 0 #resume actions
+						if self.step_counter % self.multiplier == 0: #every multiplier
+							if self.training_allowed == True:
+								self.thread.eventState = -1 #set action loop to pause
+								try:
+									self.replay()
+									self.target_train()
+								except:
+									print('could not run replay and target_train successfully')
+								self.thread.eventState = 0 #resume actions
 					#Partially reset world state. Also partially reset last_action
 					#self.world_state.refresh_reward() no reward reset here
 					self.world_state.refresh_transient_flags()
@@ -1690,7 +1698,7 @@ class MudBotClient(QtWidgets.QWidget):
 
 					# plot every n steps
 					if self.step_counter % 25 == 0:
-						print(self.step_counter)
+						print(self.step_counter,self.reward)
 					if self.step_counter % self.plot_interval == 0:
 						self.thread.eventState = -1  # pause action loop
 						try:
@@ -1711,8 +1719,8 @@ class MudBotClient(QtWidgets.QWidget):
 								self.thread.eventState = -1
 								self.reset_player()
 								self.world_state.refresh_transient_flags()
-								self.world_state_history=[self.world_state_history[-2:-1]]
-								self.state_array_history=[self.state_array_history[-2:-1]]
+								self.world_state_history=self.world_state_history[-2*self.state_multiplier:-1*self.state_multiplier]
+								self.state_array_history=self.state_array_history[-2*self.state_multiplier:-1*self.state_multiplier]
 								self.world_state = Worldstate()
 								self.state_array = self.encode_state(self.world_state)
 								#self.world_state = Worldstate()
