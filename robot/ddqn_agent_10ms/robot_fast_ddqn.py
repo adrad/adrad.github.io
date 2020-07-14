@@ -319,15 +319,20 @@ class MudBotClient(QtWidgets.QWidget):
 		#now get a sample from both regular and priotized memory using p_fraction
 		if batch_size < 4:
 			batch_size = 4
+
 		rbatch = int(np.ceil(batch_size * (1-pfraction)))
 		pbatch = int(np.floor(batch_size * pfraction))
-		#print('ok here')
-		#print(rbatch,pbatch)
-		rsamples = random.sample(regular_memory, rbatch)
-		psamples = random.sample(prioritized_memory, pbatch)
-		#random.sample(self.memory, batch_size)
-		print('did we make it?')
-		#print(rsamples,psamples)
+
+		if len(prioritized_memory) > pbatch:
+			#print('ok here')
+			#print(rbatch,pbatch)
+			rsamples = random.sample(regular_memory, rbatch)
+			psamples = random.sample(prioritized_memory, pbatch)
+		elif len(priorized_memory) <= pbatch:
+			rsamples = random.sample(regular_memory, rbatch)
+			psamples = random.sample(regular_memory, pbatch)
+
+
 		return rsamples, psamples
 
 
@@ -340,9 +345,9 @@ class MudBotClient(QtWidgets.QWidget):
 		reward = 0
 		#assign reward for having killed a monster
 		if state.kill_monster_reward_flag:
-			reward += 100
+			reward += 10
 		if state.hit_monster_reward_flag:
-			reward += 10 #reward for hitting too
+			reward += 1 #reward for hitting too
 		#penalties for dying/going after monster not present, taking wrong exit
 		if state.character_died_flag:
 			reward -= 100
@@ -356,15 +361,16 @@ class MudBotClient(QtWidgets.QWidget):
 		#add a reward for ticking
 		if state.hp < self.maxhp*0.9:
 			if state.room_name =='Order of Love':
-				if state.last_action == 'none':
-					reward += 5
+				reward += 100 #ignore what action,a lways reward in order
+				#if state.last_action == 'none':
+			#		reward += 100
 
 		# add a penalty for starting combat while health is low
 		if state.hp < self.maxhp/2:
-			if state.last_action == 'killrabit':
-					reward -= 10
+			if state.last_action == 'killrabbit':
+					reward -= 5
 			elif state.last_action == 'killraccoon':
-					reward -= 10
+					reward -= 5
 		# add a penalty for idle at full health
 		if state.hp == self.maxhp:
 			#print(state.last_action)
@@ -1740,6 +1746,10 @@ class MudBotClient(QtWidgets.QWidget):
 						while self.epsilon < .95:
 							try:
 								print('Episode Step Limit Reached')
+								#reset world with help of DM
+								msg = 'tell Rex resetworld'
+								bmsg = msg.encode('utf-8')
+								self.write_socket(QtCore.QByteArray(bmsg))
 								#reset player
 								self.thread.eventState = -1
 								self.reset_player()
@@ -1782,9 +1792,9 @@ class MudBotClient(QtWidgets.QWidget):
 		#rsamples = random.sample(self.memory, batch_size)
 		#rsamples = random.sample(self.memory, batch_size)
 		#psamples = random.sample(self.memory, batch_size)
-		print('prioritized samples')
+		#print('prioritized samples')
 		rsamples, psamples = self.get_prioritized_samples(self.memory, batch_size)
-		print('ok now')
+		#print('ok now')
 		for rsample in rsamples:
 			state, action, reward, new_state, done = rsample
 			target = self.target_model.predict(state)
