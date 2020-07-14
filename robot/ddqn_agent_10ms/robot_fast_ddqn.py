@@ -279,7 +279,7 @@ class MudBotClient(QtWidgets.QWidget):
 		#initialize memory
 		self.memory = deque(maxlen=100000)
 		#self.state_multiplier = 16 # stack multiple states to create memory
-		self.state_multiplier = 8  # stack multiple states to create memory
+		self.state_multiplier = 4  # stack multiple states to create memory
 		# initialize model training parameters
 		self.epsilon = 1  # threshold for action to be random, will decay to .05
 		self.epsilon_array=[self.epsilon]
@@ -304,6 +304,31 @@ class MudBotClient(QtWidgets.QWidget):
 		self.world_state_history = []
 		self.state_array_history = []
 		self.loss_history = []
+
+	def get_prioritized_samples(self, memory, batch_size):
+		pfraction = 0.25
+		regular_memory = deque(maxlen=100000)
+		prioritized_memory = deque(maxlen=100000)
+		for i in np.arange(len(memory)-1):
+			state, action, reward_a, state2, done = memory[i]
+			state_b, action_b, reward_b, state2_b, done_b = memory[i+1]
+			if reward_b - reward_a > 0: #positive reward
+				prioritized_memory.append((state, action, reward_a, state2, done))
+			elif reward_b - reward_a < 0: #negative reward
+				regular_memory.append((state, action, reward_a, state2, done))
+		#now get a sample from both regular and priotized memory using p_fraction
+		if batch_size < 4:
+			batch_size = 4
+		rbatch = int(np.ceil(batch_size * (1-pfraction)))
+		pbatch = int(np.floor(batch_size * pfraction))
+		#print('ok here')
+		#print(rbatch,pbatch)
+		rsamples = random.sample(regular_memory, rbatch)
+		psamples = random.sample(prioritized_memory, pbatch)
+		#random.sample(self.memory, batch_size)
+		print('did we make it?')
+		#print(rsamples,psamples)
+		return rsamples, psamples
 
 
 
@@ -1682,7 +1707,7 @@ class MudBotClient(QtWidgets.QWidget):
 										  self.reward,
 										  curr_state_array,
 										  False)  # done initially False?
-						if self.step_counter % self.multiplier == 0: #every multiplier
+						if self.step_counter % self.state_multiplier == 0: #every multiplier
 							if self.training_allowed == True:
 								self.thread.eventState = -1 #set action loop to pause
 								try:
@@ -1752,17 +1777,36 @@ class MudBotClient(QtWidgets.QWidget):
 		batch_size = 4
 		if len(self.memory) < batch_size:
 			print('memory too short', len(self.memory))
-
 			return
 
-		samples = random.sample(self.memory, batch_size)
-		for sample in samples:
-
-			state, action, reward, new_state, done = sample
+		#rsamples = random.sample(self.memory, batch_size)
+		#rsamples = random.sample(self.memory, batch_size)
+		#psamples = random.sample(self.memory, batch_size)
+		print('prioritized samples')
+		rsamples, psamples = self.get_prioritized_samples(self.memory, batch_size)
+		print('ok now')
+		for rsample in rsamples:
+			state, action, reward, new_state, done = rsample
 			target = self.target_model.predict(state)
 			#print(target)
 			#print(max(target))
 			#print(max(target[0]))
+			if done:
+				target[0][action] = reward
+			else:
+				Q_future = max(self.target_model.predict(new_state)[0])
+				newval = reward + Q_future * self.gamma
+				target[0][action] = newval
+			self.model.fit(state, target, epochs=1, verbose=0)
+
+
+		for psample in psamples:
+
+			state, action, reward, new_state, done = psample
+			target = self.target_model.predict(state)
+			# print(target)
+			# print(max(target))
+			# print(max(target[0]))
 			if done:
 				target[0][action] = reward
 			else:
