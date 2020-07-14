@@ -123,7 +123,8 @@ unsigned long timedifference_msec(struct timeval st0, struct timeval t1)
 	unsigned long tdelta;
 	//int tint;
 	tdelta =  (t1.tv_sec - st0.tv_sec) * 1000 + (t1.tv_usec - st0.tv_usec) / 1000;
-	tdelta = tdelta/100; //100 ms per tick
+	//tdelta = tdelta/100; //100 ms per tick
+	tdelta = tdelta/10; //10 ms per tick
 	//tdelta =  (t1.tv_sec - st0.tv_sec)/1.0 ;
 	//tint = (int)tdelta
     return tdelta;

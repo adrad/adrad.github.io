@@ -128,7 +128,7 @@ class EventThread(QtCore.QThread):
 							#	print('reached max steps')
 
 						elif act == 'none':  # send a blank line, needed to get reward for waiting
-							cmd = 'socket>*' + ' \n'
+							cmd = 'socket>*' + 'time \n'
 							self.mysignal.emit(cmd)
 							#self.steps = self.steps + 1
 
@@ -340,7 +340,7 @@ class MudBotClient(QtWidgets.QWidget):
 					reward -= 10
 		# add a penalty for idle at full health
 		if state.hp == self.maxhp:
-			print(state.last_action)
+			#print(state.last_action)
 			if state.last_action == 'none':
 				reward -= 5
 			if state.last_action == 'look':
@@ -1422,13 +1422,13 @@ class MudBotClient(QtWidgets.QWidget):
 		return status, txtstring
 
 	def get_hostile_str(self, txt):
-		start_indicator = "\\x1b[31mThe "
+		start_indicator = "The "
 		end_indicator = "is attacking you."
 		status, txtstring = self.pull_text(txt, start_indicator, end_indicator)
 		return status, txtstring
 
 	def got_hit_str(self, txt):
-		start_indicator = "\\x1b[31mThe"
+		start_indicator = "The"
 		end_indicator = "damage."
 		status, txtstring = self.pull_text(txt, start_indicator, end_indicator)
 		return status, txtstring
@@ -1728,7 +1728,7 @@ class MudBotClient(QtWidgets.QWidget):
 
 				self.display.append(self.cleanText(txt)) #clean text before displaying
 				self.display.verticalScrollBar().setValue(self.display.verticalScrollBar().maximum()) # scroll to bottom
-			elif not self.tcpSocket.isValid:
+			elif not self.tcpSocket.isValid():
 				print('bro, not connected.')
 		except:
 			print('------- tcpSocketReadyReadEmitted ----')
