@@ -24,14 +24,13 @@ import random
 import copy
 
 
-
-from keras.preprocessing.text import Tokenizer
-from keras.models import model_from_json
-from keras.optimizers import RMSprop
-from keras.utils import plot_model
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.models import load_model
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.models import model_from_json
+from tensorflow.keras.optimizers import RMSprop
+from tensorflow.keras.utils import plot_model
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.models import load_model
 ##from keras import Input
 ##from keras.callbacks import TensorBoard
 ##from keras.engine import Model
@@ -65,6 +64,7 @@ class ModelThread(QtCore.QThread):
 		# self.state_multiplier = 16 # stack multiple states to create memory
 		self.state_multiplier = 4  # stack multiple states to create memory
 		self.batch_size = 4
+		self.priority_fraction = 0.25
 		# initialize model training parameters
 		self.epsilon_start = 1
 		self.epsilon = 1  # threshold for action to be random, will decay to .05
@@ -72,16 +72,16 @@ class ModelThread(QtCore.QThread):
 		self.training_allowed = True
 		# self.training_allowed=False
 		self.epsilon_min = 0.05
-		self.epsilon_decay = .9995  # 0.993
+		self.epsilon_decay = .999  # 0.993
 		# discount for future rewards
-		self.gamma = .50#0.99  # 0.99  # google uses 0.99 discount factor
-		self.tau = .0125  # 0.125 #1E-3 for soft update of target parameters
+		self.gamma = .125#0.99  # 0.99  # google uses 0.99 discount factor
+		self.tau = .125  # 0.125 #1E-3 for soft update of target parameters
 		self.learning_rate = 0.01#0025  # learning rate
 	def final_startup(self):
 		# create the model
 		self.model = self.create_model()
 		self.target_model = self.create_model()
-		self.parent.model = copy.deepcopy(self.model)
+		#self.parent.model = copy.deepcopy(self.model)
 
 	def create_model(self):
 		# https://towardsdatascience.com/reinforcement-learning-w-keras-openai-dqns-1eed3a5338c
@@ -121,13 +121,15 @@ class ModelThread(QtCore.QThread):
 
 	def get_prioritized_samples(self, memory, batch_size):
 
-		pfraction = 0.25
+		pfraction = self.priority_fraction
 		regular_memory = deque(maxlen=100000)
 		prioritized_memory = deque(maxlen=100000)
 
-		for i in np.arange(len(memory)-1):
+		for i in np.arange(len(memory)-self.state_multiplier):
 			state, action, reward_a, state2, done = memory[i]
-			state_b, action_b, reward_b, state2_b, done_b = memory[i+1]
+			state_b, action_b, reward_b, state2_b, done_b = memory[i+self.state_multiplier] #make sure to skip ahead enough states
+			#for multiplier 4, each state has 4 frames, but there is overlap states i+1 has frames 2:5, state i has frame 1:4
+			#skip ahead by mult to get far enough away
 			if reward_b - reward_a > 0: #positive reward change
 				#if reward_a > 0 : insist on positive cumitave rewards only?
 				prioritized_memory.append((state, action, reward_a, state2, done))
@@ -253,7 +255,7 @@ class EventThread(QtCore.QThread):
 		#     actions.append('go '+e)
 		try:
 			self.eventState = -1  # start in off state. start bot button gets bot to idle state (0)
-			self.ms_per_tick = 100
+			self.ms_per_tick = 20
 			#self.isWalking = 0
 			#self.isFighting = 0  # initially not fighting
 			# status:
@@ -453,9 +455,9 @@ class MudBotClient(QtWidgets.QWidget):
 	def initialize_self(self):
 		self.maxhp = 125
 		self.oldEXP = 0
-		self.plot_interval = 1000
+		self.plot_interval = 500
 		self.step_counter = 0
-		self.steps_per_episode = 1000
+		self.steps_per_episode = 500
 		self.train_interval = 16
 		#self.training_interval
 		self.initialize_rewards()
@@ -748,7 +750,7 @@ class MudBotClient(QtWidgets.QWidget):
 		inputx = self.reshape_x_and_combine(state_array_history[-mult:], mult)  # careful changing multiplier from 16
 		best_action = 'none'
 		try:
-			predictions = self.model.predict(inputx)
+			predictions = self.modelthread.model.predict(inputx)
 			max_val_index = np.argmax(predictions)
 			best_action = actiondict[max_val_index]
 		except:
@@ -1944,7 +1946,7 @@ class MudBotClient(QtWidgets.QWidget):
 							self.reward = 0
 								#self.epsilon = self.epsilon_start
 							#update model
-							self.model = copy.deepcopy(self.modelthread.model)
+							#self.model = copy.deepcopy(self.modelthread.model)
 
 
 							print('Episode RESET done')
