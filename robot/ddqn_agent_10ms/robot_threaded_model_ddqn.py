@@ -6,6 +6,10 @@
 
 import sys
 import os
+os.environ['MKL_NUM_THREADS'] = '4'
+os.environ['GOTO_NUM_THREADS'] = '4'
+os.environ['OMP_NUM_THREADS'] = '4'
+os.environ['openmp'] = 'True'
 import shutil
 from PyQt5 import QtCore, QtGui, QtWidgets, QtNetwork
 from pyqtgraph import PlotWidget, plot
@@ -19,6 +23,8 @@ from collections import deque
 import random
 import copy
 
+
+
 from keras.preprocessing.text import Tokenizer
 from keras.models import model_from_json
 from keras.optimizers import RMSprop
@@ -31,6 +37,7 @@ from keras.models import load_model
 ##from keras.engine import Model
 # from keras.layers import LSTM, Dense, Embedding, Dot, Dropout, Activation, Flatten
 # from keras.layers import MaxPooling1D, MaxPooling2D
+
 
 
 # from keras.preprocessing.sequence import pad_sequences
@@ -56,7 +63,8 @@ class ModelThread(QtCore.QThread):
 		# initialize memory
 		self.memory = deque(maxlen=100000)
 		# self.state_multiplier = 16 # stack multiple states to create memory
-		self.state_multiplier = 8  # stack multiple states to create memory
+		self.state_multiplier = 4  # stack multiple states to create memory
+		self.batch_size = 4
 		# initialize model training parameters
 		self.epsilon_start = 1
 		self.epsilon = 1  # threshold for action to be random, will decay to .05
@@ -64,15 +72,16 @@ class ModelThread(QtCore.QThread):
 		self.training_allowed = True
 		# self.training_allowed=False
 		self.epsilon_min = 0.05
-		self.epsilon_decay = .9999  # 0.993
+		self.epsilon_decay = .9995  # 0.993
 		# discount for future rewards
-		self.gamma = 0.99  # 0.99  # google uses 0.99 discount factor
-		self.tau = .001  # 0.125 #1E-3 for soft update of target parameters
-		self.learning_rate = 0.00025  # learning rate
+		self.gamma = .50#0.99  # 0.99  # google uses 0.99 discount factor
+		self.tau = .0125  # 0.125 #1E-3 for soft update of target parameters
+		self.learning_rate = 0.01#0025  # learning rate
 	def final_startup(self):
 		# create the model
 		self.model = self.create_model()
 		self.target_model = self.create_model()
+		self.parent.model = copy.deepcopy(self.model)
 
 	def create_model(self):
 		# https://towardsdatascience.com/reinforcement-learning-w-keras-openai-dqns-1eed3a5338c
@@ -100,7 +109,7 @@ class ModelThread(QtCore.QThread):
 			print('couldnt print model to image', e)
 		return model
 
-	def train_model(self):
+	def train_model_old(self):
 		print('training model')
 		#self.thread.eventState = -1# set action loop to pause
 		training_cycles = 5000
@@ -144,10 +153,16 @@ class ModelThread(QtCore.QThread):
 
 		return rsamples, psamples
 
+
+
+	def train_model(self):
+		self.replay()
+		self.target_train()
+
 	def replay(self):
 		try:
 			#print('replay triggered')
-			batch_size = 4
+			batch_size = self.batch_size
 			if len(self.memory) < batch_size:
 				print('memory too short', len(self.memory))
 				return
@@ -171,6 +186,10 @@ class ModelThread(QtCore.QThread):
 					newval = reward + Q_future * self.gamma
 					target[0][action] = newval
 				self.model.fit(state, target, epochs=1, verbose=0)
+
+
+
+
 
 
 			for psample in psamples:
@@ -434,10 +453,11 @@ class MudBotClient(QtWidgets.QWidget):
 	def initialize_self(self):
 		self.maxhp = 125
 		self.oldEXP = 0
-		self.plot_interval = 1000 #1000
+		self.plot_interval = 1000
 		self.step_counter = 0
-		self.steps_per_episode = 1000 #1000
-		self.train_interval = 4
+		self.steps_per_episode = 1000
+		self.train_interval = 16
+		#self.training_interval
 		self.initialize_rewards()
 
 
@@ -449,6 +469,7 @@ class MudBotClient(QtWidgets.QWidget):
 	def ini_model_thread(self):
 		self.modelthread = ModelThread(self)  # pass self into the thread so that parent functions can be accessed
 		self.modelthread.start()
+
 
 	def iniEventThread(self):
 		# start a thread to handle events
@@ -727,18 +748,13 @@ class MudBotClient(QtWidgets.QWidget):
 		inputx = self.reshape_x_and_combine(state_array_history[-mult:], mult)  # careful changing multiplier from 16
 		best_action = 'none'
 		try:
-			predictions = self.modelthread.model.predict(inputx)
+			predictions = self.model.predict(inputx)
 			max_val_index = np.argmax(predictions)
 			best_action = actiondict[max_val_index]
 		except:
 			print('failed to get prediction array ')
 
-		if best_action == 'killrabbit':
-			best_action = 'kill rabbit'
-		if best_action == 'killraccoon':
-			best_action = 'kill raccoon'
-		if best_action == 'killgolem':
-			best_action = 'kill golem'
+
 		#print('model chose: ',best_action)
 		return best_action
 
@@ -1875,16 +1891,15 @@ class MudBotClient(QtWidgets.QWidget):
 
 				if self.step_counter % self.train_interval == 0: #specified interval
 					if self.modelthread.training_allowed == True:
-						#self.thread.eventState = -1 #set action loop to pause
+						self.thread.eventState = -1 #set action loop to pause
 						try:
 							#print('attempt to replay')
-							self.modelthread.replay()
-							#print('replay done')
-							self.modelthread.target_train()
+							self.modelthread.train_model()
+
 							#print('target_train done')
 						except:
 							print('could not run replay and target_train successfully')
-						#self.thread.eventState = 0 #resume actions
+						self.thread.eventState = 0 #resume actions
 
 					#Partially reset world state. Also partially reset last_action
 					#self.world_state.refresh_reward() no reward reset here
@@ -1928,6 +1943,8 @@ class MudBotClient(QtWidgets.QWidget):
 						#	self.world_state = Worldstate()
 							self.reward = 0
 								#self.epsilon = self.epsilon_start
+							#update model
+							self.model = copy.deepcopy(self.modelthread.model)
 
 
 							print('Episode RESET done')
