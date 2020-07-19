@@ -91,7 +91,7 @@ class ModelThread(QtCore.QThread):
 		myoutputdim = len(self.parent.actiondict) #+ 1  # outputs are actions, add one extra for unrecognized actions
 		print('input dims: ', myinputdim)
 
-		model.add(Dense(4*myinputdim, input_dim=myinputdim, activation='relu'))
+		model.add(Dense(2*myinputdim, input_dim=myinputdim, activation='relu'))
 		#model.add(Dense(768, activation='relu'))
 		model.add(Dense(myinputdim+myoutputdim+1, activation='relu'))
 		#model.add(Dense(myinputdim + myoutputdim + 1, activation='relu'))
@@ -241,11 +241,17 @@ class EventThread(QtCore.QThread):
 		self.exiting = False
 		self.action_from_parent = 'none'
 		self.delta = 0
+		self.eventState = -1
+		self.pause_flag = False
 
 	def begin(self):
 		#self.start()
 		print('Starting Event Loop (Robot Mind)')
+	def pause(self):
+		self.eventState = -1
 
+	def unpause(self):
+		self.eventState = 0
 	def run(self):
 		# main thread for event loop. not called directly, but runs
 		# after thread gets setup (self.start()
@@ -291,7 +297,9 @@ class EventThread(QtCore.QThread):
 				if self.eventState == 99:
 					print('quitting event Thread')
 					self.exiting = True
-				while self.eventState == 0:
+				if self.eventState == 0:
+					if self.eventState < 0:
+						print('event state is',self.eventState)
 					self.currenttimer = datetime.now()
 					# limit actions every 1 second for now
 					self.diff = self.currenttimer - self.logtimer
@@ -701,12 +709,18 @@ class MudBotClient(QtWidgets.QWidget):
 
 
 		elif str(qstring).find('request_action>*') != -1:
-			self.advance_one_step()  # adavnce the world one step
-			# pass action from model thread to action thread. may need to go model -> eventthread to go faster
-			self.generate_new_action(self.actiondict,
-									self.state_array_history,
-									self.state_multiplier
-									 )
+
+			try:
+				self.advance_one_step()  # adavnce the world one step
+				# pass action from model thread to action thread. may need to go model -> eventthread to go faster
+				self.generate_new_action(self.actiondict,
+										 self.state_array_history,
+										 self.state_multiplier
+										 )
+				self.store_states_and_memory()
+			except:
+				print('memory not ready for storage')
+
 
 
 
@@ -1200,7 +1214,7 @@ class MudBotClient(QtWidgets.QWidget):
 		self.thread.start()
 		print('event loop thread has been started')
 		# set the event state to 0
-		self.thread.eventState = 0
+		self.thread.unpause()
 		print('set thread eventState to 0')
 
 	def save_data(self):
@@ -1793,11 +1807,11 @@ class MudBotClient(QtWidgets.QWidget):
 			self.world_state.room_name == 'Order of Love'
 			#self.initialize_world_state()
 		#print('resume event loop after reset')
-		self.thread.eventState = 0
+		self.thread.unpause()
 
 
 	def reset_player(self):
-		self.thread.eventState = -1  # set action loop to pause
+		self.thread.pause()# set action loop to pause
 		save_enabled = True
 		if save_enabled:
 			print('calling save data and save model')
@@ -1847,126 +1861,128 @@ class MudBotClient(QtWidgets.QWidget):
 			print(sys.exc_info()[0])
 			print(sys.exc_info())
 
+	def store_states_and_memory(self):
+		self.world_state_history.append(copy.deepcopy(self.world_state))
+		old_world_state = self.world_state_history[-2]
+		# print('try decode')
+		# decode not functional yet
+		# self.decode_state(self.state_array) # print('decode ok')
+		self.modelthread.epsilon_array.append(self.modelthread.epsilon)
+		self.state_array = self.encode_state(self.world_state)
+		self.state_array_history.append(self.state_array)
+		'''
+		oworld_state = self.world_state_history[-1]
+		old_old_world_state = self.world_state_history[-3]
+		old_old_old_world_state = self.world_state_history[-4]
+		#print('-4',old_old_old_world_state.state_to_string())
+		#print('-3',old_old_world_state.state_to_string())
+		print('-2',old_world_state.state_to_string())
+		#print('-1',oworld_state.state_to_string())
+		print('rwd',self.reward)
+		#self.actiondict = ['none', 'north', 'east', 'south', 'west', 'killrabbit', 'killraccoon', 'look']
+		print(self.last_action)
+		#print('prv action',self.previous_action)
+		print('curr',self.world_state.state_to_string())
+		print('--------------------')
+		'''
+		if len(self.state_array_history) > 2 * self.state_multiplier:
+			# print('generating curr adn old states')
+			curr_state_array = self.reshape_x_and_combine(self.state_array_history[-self.state_multiplier:],
+														  self.state_multiplier)
+			old_state_array = self.reshape_x_and_combine(
+				self.state_array_history[-2 * self.state_multiplier:-self.state_multiplier], self.state_multiplier)
+			action_index = self.actiondict.index(self.last_action[0])
+			reward_to_store = self.calculate_reward_from_state(old_world_state)
+			# reward_to_store = self.calculate_reward_from_state_simple(old_world_state)
+			self.reward += reward_to_store
+			# print(self.reward)
+			# print('store memory')
+			self.store_memory(old_state_array,
+							  action_index,
+							  self.reward,
+							  curr_state_array,
+							  False)  # done initially False?
+
 	def advance_one_step(self):
 		try:
-			self.world_state_history.append(copy.deepcopy(self.world_state))
-			oworld_state = self.world_state_history[-1]
-			old_world_state = self.world_state_history[-2]
-			old_old_world_state = self.world_state_history[-3]
-			old_old_old_world_state = self.world_state_history[-4]
-					# print('try decode')
-					# decode not functional yet
-					# self.decode_state(self.state_array) # print('decode ok')
-			self.modelthread.epsilon_array.append(self.modelthread.epsilon)
-			self.state_array = self.encode_state(self.world_state)
-			self.state_array_history.append(self.state_array)
-			'''
-			#print('-4',old_old_old_world_state.state_to_string())
-			#print('-3',old_old_world_state.state_to_string())
-			print('-2',old_world_state.state_to_string())
-			#print('-1',oworld_state.state_to_string())
-			print('rwd',self.reward)
-			#self.actiondict = ['none', 'north', 'east', 'south', 'west', 'killrabbit', 'killraccoon', 'look']
-			print(self.last_action)
-			#print('prv action',self.previous_action)
-			print('curr',self.world_state.state_to_string())
-			print('--------------------')
-			'''
 
-			if len(self.state_array_history) > 2*self.state_multiplier:
-
-						# print('generating curr adn old states')
-				curr_state_array = self.reshape_x_and_combine(self.state_array_history[-self.state_multiplier:], self.state_multiplier)
-				old_state_array = self.reshape_x_and_combine(self.state_array_history[-2*self.state_multiplier:-self.state_multiplier], self.state_multiplier)
-				action_index = self.actiondict.index(self.last_action[0])
-				reward_to_store = self.calculate_reward_from_state(old_world_state)
-				#reward_to_store = self.calculate_reward_from_state_simple(old_world_state)
-				self.reward += reward_to_store
-				#print(self.reward)
-				#print('store memory')
-
-				self.store_memory(old_state_array,
-										  action_index,
-										  self.reward,
-										  curr_state_array,
-										  False)  # done initially False?
-
-				if self.step_counter % self.train_interval == 0: #specified interval
-					if self.modelthread.training_allowed == True:
-						self.thread.eventState = -1 #set action loop to pause
-						try:
-							#print('attempt to replay')
-							self.modelthread.train_model()
-
-							#print('target_train done')
-						except:
-							print('could not run replay and target_train successfully')
-						self.thread.eventState = 0 #resume actions
-
-					#Partially reset world state. Also partially reset last_action
-					#self.world_state.refresh_reward() no reward reset here
-				self.world_state.refresh_transient_flags()
-
-				self.previous_action = copy.deepcopy(self.last_action)
-				self.last_action = ['none'] #may want to drop this
-
-					# plot every n steps
-				if self.step_counter % 100 == 0:
-					print('current step: ',self.step_counter,'reward: ',self.reward)
-				if self.step_counter % self.plot_interval == 0:
-					#self.thread.eventState = -1  # pause action loop
+			if self.step_counter % self.train_interval == 0: #specified interval
+				if self.modelthread.training_allowed == True:
+					self.thread.pause()
 					try:
-						print('attempt to plot')
-						self.plot_reward()
-						self.plot_epsilon(self.modelthread.epsilon_array)
+						#print('attempt to replay')
+						self.modelthread.train_model()
+
+						#print('target_train done')
 					except:
-						print('could not plot')
-						#self.thread.eventState = 0  # resume action loop
-				self.step_counter += 1
+						print('could not run replay and target_train successfully')
+					self.thread.unpause() #resume actions
 
-				#reset episode every n steps
-				reset_in_progress=True
-				if self.step_counter % self.steps_per_episode == 0:
-					print('Episode Step Limit Reached')
-					msg = 'say resetworld\n'
-					bmsg = msg.encode('utf-8')
-					self.write_socket(QtCore.QByteArray(bmsg))
-					while reset_in_progress:
-						try:
+				#Partially reset world state. Also partially reset last_action
+				#self.world_state.refresh_reward() no reward reset here
+			self.world_state.refresh_transient_flags()
 
-								#reset player
-							self.thread.eventState = -1
-							self.reset_player()
-							self.world_state.refresh_transient_flags()
-							self.world_state_history=self.world_state_history[-2*self.state_multiplier:-1*self.state_multiplier]
-							self.state_array_history=self.state_array_history[-2*self.state_multiplier:-1*self.state_multiplier]
-							self.world_state = Worldstate()
-							self.state_array = self.encode_state(self.world_state)
-						#	self.world_state = Worldstate()
-							self.reward = 0
-								#self.epsilon = self.epsilon_start
-							#update model
-							#self.model = copy.deepcopy(self.modelthread.model)
+			self.previous_action = copy.deepcopy(self.last_action)
+			self.last_action = ['none'] #may want to drop this
+
+				# plot every n steps
+			if self.step_counter % 100 == 0:
+				print('current step: ',self.step_counter,'reward: ',self.reward)
+			if self.step_counter % self.plot_interval == 0:
+				#self.thread.eventState = -1  # pause action loop
+				try:
+					print('attempt to plot')
+					self.plot_reward()
+					self.plot_epsilon(self.modelthread.epsilon_array)
+				except:
+					print('could not plot')
+					#self.thread.eventState = 0  # resume action loop
+			self.step_counter += 1
+
+			#reset episode every n steps
+			reset_in_progress=True
+			if self.step_counter % self.steps_per_episode == 0:
+				print('Episode Step Limit Reached')
+				msg = 'say resetworld\n'
+				bmsg = msg.encode('utf-8')
+				self.write_socket(QtCore.QByteArray(bmsg))
+				while reset_in_progress:
+					try:
+
+							#reset player
+
+						self.thread.pause()
+						self.reset_player()
+						self.world_state.refresh_transient_flags()
+						self.world_state_history=self.world_state_history[-2*self.state_multiplier:-1*self.state_multiplier]
+						self.state_array_history=self.state_array_history[-2*self.state_multiplier:-1*self.state_multiplier]
+						self.world_state = Worldstate()
+						self.state_array = self.encode_state(self.world_state)
+					#	self.world_state = Worldstate()
+						self.reward = 0
+							#self.epsilon = self.epsilon_start
+						#update model
+						#self.model = copy.deepcopy(self.modelthread.model)
 
 
-							print('Episode RESET done')
-							self.thread.eventState = 0
-							reset_in_progress = False
+						print('Episode RESET done')
+						self.thread.unpause()
+						reset_in_progress = False
 
-						except:
-							print('error  on episode reset')
-							print(sys.exc_info()[0])
-							print(sys.exc_info())
-						'''if self.step_counter > 5000:
-							self.epsilon_start -= 0.01
-							self.epsilon_start = np.max([self.epsilon_start, 0.2])
-							self.epsilon_decay -= 0.01
-							self.epsilon_decay = np.max([self.epsilon_decay, 0.99])
-							self.epsilon = self.epsilon_star
-							print('updated epsilon')'''
-						#self.step_counter =
+					except:
+						print('error  on episode reset')
+						print(sys.exc_info()[0])
+						print(sys.exc_info())
+					'''if self.step_counter > 5000:
+						self.epsilon_start -= 0.01
+						self.epsilon_start = np.max([self.epsilon_start, 0.2])
+						self.epsilon_decay -= 0.01
+						self.epsilon_decay = np.max([self.epsilon_decay, 0.99])
+						self.epsilon = self.epsilon_star
+						print('updated epsilon')'''
+					#self.step_counter =
 
-			self.thread.eventState = -1
+			self.thread.pause()
 			self.check_if_reset_needed()  # check if player needs a reset, and if so apply reset
 
 
