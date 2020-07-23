@@ -6,3 +6,5 @@
   a) make sure that the mud server is running in the backgroudn
   b) the robot will train and explore on its own. Currently setup to run all training in one episode. 
   note: can use alphamud.yaml to import conda environment with all requirements
+
+Overview and current performance:https://github.com/adrad/deep_in_mud/blob/master/overview.png
