@@ -476,6 +476,7 @@ class MudBotClient(QtWidgets.QWidget):
 		#self.training_interval
 		self.initialize_rewards()
 		self.save_enabled = True
+		self.encode_actions = True
 
 
 	def initialize_rewards(self):
@@ -618,7 +619,8 @@ class MudBotClient(QtWidgets.QWidget):
 		#state_array = np.concatenate((hp_encoded, room_matrix, sum_exit_matrix, sum_objmon_matrix, action_encoded),
 		#							 axis=0)
 		#stop encoding actions for now
-		state_array = np.concatenate((hp_encoded,
+		if self.encode_actons == True:
+			state_array = np.concatenate((hp_encoded,
 									  room_matrix,
 									  #sum_exit_matrix,
 									  sum_objmon_matrix,
@@ -626,6 +628,15 @@ class MudBotClient(QtWidgets.QWidget):
 									  action_encoded,
 									  ),
 									 axis=0)
+		elif self.encode_actions == False:
+			np.concatenate((hp_encoded,
+							room_matrix,
+							# sum_exit_matrix,
+							sum_objmon_matrix,
+							sum_hostile_matrix,
+							#action_encoded,
+							),
+						   axis=0)
 		return state_array
 
 	def decode_state(self, state_array):
@@ -634,11 +645,11 @@ class MudBotClient(QtWidgets.QWidget):
 		print(state_array)
 		lenhp = 1
 		lenrooms = len(self.room_name_dict) + 1
-		lenexits = len(self.exitdict) + 1
+		#lenexits = len(self.exitdict) + 1
 		lenobjmon = len(self.objmondict) + 1
+		lenhostile = len(self.hostiledict) + 1
+		#lenactions = len(self.actiondict) + 1
 		print('ok')
-
-
 
 		index=0
 		hp_encoded = state_array[0]
@@ -647,11 +658,14 @@ class MudBotClient(QtWidgets.QWidget):
 		room_matrix = state_array[index:index+lenrooms]
 		print(room_matrix)
 		index+=lenrooms
-		exit_matrix = state_array[index:index+lenexits]
-		print(exit_matrix)
-		index+=lenexits
+		#exit_matrix = state_array[index:index+lenexits]
+		#print(exit_matrix)
+		#index+=lenexits
 		objmon_matrix = state_array[index:index+lenobjmon]
 		print(objmon_matrix)
+		index+=lenobjmon
+		hostile_matrix = state_array[index:index + lenhostile]
+		print(hostile_matrix)
 
 		#decode matrix into text
 		hp = hp_encoded*self.maxhp
@@ -1801,7 +1815,7 @@ class MudBotClient(QtWidgets.QWidget):
 			elif self.step_counter >= self.modelthread.steps_without_decay:
 					self.modelthread.epsilon_decay = self.modelthread.epsilon_decay_final
 
-			if self.step_counter % self.train_interval == 0: #specified interval
+			if self.step_counter % self.train_interval == 0: #specified interval training interval
 				if self.modelthread.training_allowed == True:
 					self.thread.pause()
 					try:
