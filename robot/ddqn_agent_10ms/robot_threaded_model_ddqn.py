@@ -61,7 +61,7 @@ class ModelThread(QtCore.QThread):
 	def initialize_model(self):
 		# initialize memory
 		self.memory = deque(maxlen=100000)
-		# self.state_multiplier = 16 # stack multiple states to create memory
+		#self.state_multiplier = 16 # stack multiple states to create memory
 		self.state_multiplier = 4  # stack multiple states to create memory
 		self.batch_size = 4
 		self.priority_fraction = 0.25
@@ -71,12 +71,15 @@ class ModelThread(QtCore.QThread):
 		self.epsilon_array = [self.epsilon]
 		self.training_allowed = True
 		# self.training_allowed=False
-		self.epsilon_min = 0.05
-		self.epsilon_decay = .999  # 0.993
+		self.epsilon_min = 0.05#01
+		self.steps_without_decay = 4000
+		self.epsilon_decay_initial= 1
+		self.epsilon_decay_final = 0.999
+		self.epsilon_decay = 1#.999 #.99995  # 0.993
 		# discount for future rewards
-		self.gamma = .125#0.99  # 0.99  # google uses 0.99 discount factor
+		self.gamma = .2#0.99  # 0.99  # google uses 0.99 discount factor
 		self.tau = .125  # 0.125 #1E-3 for soft update of target parameters
-		self.learning_rate = 0.01#0025  # learning rate
+		self.learning_rate = 0.01 #0.01#0025  # learning rate
 	def final_startup(self):
 		# create the model
 		self.model = self.create_model()
@@ -91,8 +94,7 @@ class ModelThread(QtCore.QThread):
 		myoutputdim = len(self.parent.actiondict) #+ 1  # outputs are actions, add one extra for unrecognized actions
 		print('input dims: ', myinputdim)
 
-		model.add(Dense(2*myinputdim, input_dim=myinputdim, activation='relu'))
-		#model.add(Dense(768, activation='relu'))
+		model.add(Dense(4*myinputdim, input_dim=myinputdim, activation='relu'))
 		model.add(Dense(myinputdim+myoutputdim+1, activation='relu'))
 		#model.add(Dense(myinputdim + myoutputdim + 1, activation='relu'))
 		#model.add(Dense(myinputdim + myoutputdim + 1, activation='relu'))
@@ -261,7 +263,7 @@ class EventThread(QtCore.QThread):
 		#     actions.append('go '+e)
 		try:
 			self.eventState = -1  # start in off state. start bot button gets bot to idle state (0)
-			self.ms_per_tick = 20
+			self.ms_per_tick = 100
 			#self.isWalking = 0
 			#self.isFighting = 0  # initially not fighting
 			# status:
@@ -382,7 +384,7 @@ class Worldstate():
 		self.delaystr = ''
 		self.hostile_str = ''
 		self.damage_str = ''
-		self.last_action = ['none']
+		#self.last_action = ['none']
 
 		self.kill_monster_reward_string = ''
 		self.kill_monster_reward_flag = False
@@ -407,6 +409,10 @@ class Worldstate():
 		# selfstrings.append(self.delaystr)
 		selfstrings.append('hostile_str')
 		selfstrings.append(self.hostile_str)
+		try:
+				selfstrings.append(self.last_action)
+		except:
+			print('error appending action to statestring')
 		# selfstrings.append(self.damage_str)
 		# selfstrings.append(str(self.last_action))
 		return selfstrings
@@ -461,20 +467,21 @@ class MudBotClient(QtWidgets.QWidget):
 		self.hostile_tokenizer.fit_on_texts(self.hostiledict)
 
 	def initialize_self(self):
-		self.maxhp = 125
+		self.maxhp = 125#45
 		self.oldEXP = 0
-		self.plot_interval = 500
+		self.plot_interval = 1000
 		self.step_counter = 0
-		self.steps_per_episode = 500
+		self.steps_per_episode = 1000
 		self.train_interval = 16
 		#self.training_interval
 		self.initialize_rewards()
+		self.save_enabled = True
 
 
 	def initialize_rewards(self):
 		self.reward= 0
-		self.killreward= 100
-		self.diepenalty = 100
+		self.killreward= 1
+		self.playerdeathpenalty = 1
 
 	def ini_model_thread(self):
 		self.modelthread = ModelThread(self)  # pass self into the thread so that parent functions can be accessed
@@ -568,11 +575,9 @@ class MudBotClient(QtWidgets.QWidget):
 		reward = 0
 		#assign reward for having killed a monster
 		if state.kill_monster_reward_flag:
-			reward += 10
-
+			reward += self.killreward
 		if state.character_died_flag:
-			reward -= 1000
-
+			reward -= self.playerdeathpenalty
 		return reward
 
 	def encode_state(self, state):
@@ -711,13 +716,20 @@ class MudBotClient(QtWidgets.QWidget):
 		elif str(qstring).find('request_action>*') != -1:
 
 			try:
-				self.advance_one_step()  # adavnce the world one step
-				# pass action from model thread to action thread. may need to go model -> eventthread to go faster
-				self.generate_new_action(self.actiondict,
+				self.store_states_and_memory()
+				act = self.generate_new_action(self.actiondict,
 										 self.state_array_history,
 										 self.state_multiplier
 										 )
-				self.store_states_and_memory()
+
+				# Partially reset world state. Also partially reset last_action
+				# self.world_state.refresh_reward() no reward reset here
+				self.advance_one_step()  # adavnce the world one step
+				# pass action from model thread to action thread. may need to go model -> eventthread to go faster
+
+				self.world_state.refresh_transient_flags()
+				self.world_state.last_action = act
+
 			except:
 				print('memory not ready for storage')
 
@@ -741,24 +753,15 @@ class MudBotClient(QtWidgets.QWidget):
 			#print('made it this far')
 			action = random.choice(actiondict)
 			self.last_action = [action]
-			# print('chose action: ', action)
-
-
 		else:
 			# calculate state with maximum Q value
 			action = self.get_action_from_model(actiondict,state_array_history,state_multiplier)
 			self.last_action = [action]
-			#print('model chose action: ', action)
-
-
-
 		self.modelthread.epsilon = self.modelthread.epsilon * self.modelthread.epsilon_decay
 		self.modelthread.epsilon = max(self.modelthread.epsilon_min, self.modelthread.epsilon)
 		#print('generated action',action)
 		self.thread.action_from_parent = action
-		#print('updated action to thread')
-		#print(self.thread.action_from_parent )
-
+		return action
 	def get_action_from_model(self,actiondict,state_array_history,state_multiplier):
 		mult = state_multiplier
 		inputx = self.reshape_x_and_combine(state_array_history[-mult:], mult)  # careful changing multiplier from 16
@@ -853,6 +856,8 @@ class MudBotClient(QtWidgets.QWidget):
 
 
 	def iniMain(self):
+		#copy backup player file on boot
+		self.copy_backup_file()
 		self.iniSockets()
 		self.initUI()
 		self.connect_buttons()
@@ -940,6 +945,7 @@ class MudBotClient(QtWidgets.QWidget):
 		# add b before strings to turn them into bytes
 		# txt = b'test' + b'\n' + b'asdfasdf' + b'\r\n' #+ 'clear long\r\n' + 'set auto' + '\r\n'
 		text = 'tester\nasdfasdf\nlook\n'
+		#text = 'robot\nasdfasdf\nlook\n'
 		btext = text.encode('utf-8')
 		try:
 			self.write_socket(QtCore.QByteArray(btext))
@@ -965,8 +971,10 @@ class MudBotClient(QtWidgets.QWidget):
 		src_dir = os.getcwd()
 		filedir = src_dir + "\\..\\..\\mordor\\player\\"
 		backupfile = 'Tester_backup'
+		#backupfile = 'Robot_backup'
 		#backupfile= 'Tester_limbotesting'
 		copyfile = 'Tester'
+		#copyfile = 'Robot'
 		fullpath = filedir + backupfile
 		copypath = filedir + copyfile
 		shutil.copyfile(fullpath, copypath)
@@ -1132,7 +1140,7 @@ class MudBotClient(QtWidgets.QWidget):
 		self.hlay.insertLayout(1,self.lay)
 		self.hlay.insertLayout(2,self.graphics_lay)
 		# setup window size and icon
-		self.setGeometry(100, 100, 1200, 900)
+		self.setGeometry(50, 50, 1550, 400)
 		self.setWindowTitle('Mud Client Botter')
 		self.setWindowIcon(QtGui.QIcon('Robot-icon.png'))
 
@@ -1160,8 +1168,21 @@ class MudBotClient(QtWidgets.QWidget):
 		sending_button = self.sender()
 		action = sending_button.text()
 
-		# store the action
-		self.last_action = [action]
+		try:
+			#---------------------------
+			self.store_states_and_memory()
+			# Partially reset world state. Also partially reset last_action
+			# self.world_state.refresh_reward() no reward reset here
+			self.advance_one_step()  # adavnce the world one step
+			# pass action from model thread to action thread. may need to go model -> eventthread to go faster
+			self.world_state.refresh_transient_flags()
+			self.world_state.last_action = action
+			# store the action
+			self.last_action = [action]
+
+		except:
+			print('not ready to store states')
+		#---------------------------
 		# write action to socket
 		if action == 'killrabbit':
 			action = 'kill rabbit'
@@ -1172,7 +1193,6 @@ class MudBotClient(QtWidgets.QWidget):
 
 		action = action + ' \n'
 		bmsg = action.encode('utf-8')
-
 		self.write_socket(QtCore.QByteArray(bmsg))
 
 
@@ -1269,176 +1289,6 @@ class MudBotClient(QtWidgets.QWidget):
 			event.accept()
 		else:
 			event.ignore()
-	def parse_worldstate_old(self, txt):
-		# want to continuously parse and update the world state
-		# but only store and reset the world state once per second
-		newstate = self.world_state
-
-
-		# consider reset of award
-		#self.reward = 0
-		#Reasont o reset reward is that the value of the action is determined by the immediate reward.
-		# state_n -> sate_n+1 due to action n causes reward r
-		# integral of r is good to evaluate overall agent, but the Q network should predict
-		# expected reward from each action, which should not be cumulative.
-		newstate.reward = self.reward
-		status, room_name = self.get_room_name(txt)
-
-		if status == True:
-			newstate.room_name = room_name
-			#print('new room detected',room_name)
-			# shoud also reset monsters present
-			# UPON ENTERING a new room, reset obj/monsters
-
-			newstate.objmonlist = []
-			if self.last_action != 'look':
-				# self.reward = self.reward + 0.001  # small positive reward for a room name
-				#tmpreward = self.reward + 0.001
-			# only give award when last action was not simply loooking around
-			# meant to encourage looking around as well as exploring
-				newstate.reward = self.reward
-
-		status, exitstr = self.get_exits_str(txt)
-		if status == True:
-			exits = self.parse_exits_str(exitstr)
-			newstate.exits = exits
-		status, room_description = self.get_room_description(txt)
-		if status == True:
-			newstate.room_description = room_description
-		status, objmonstr = self.getobjmonstr(txt)
-		if status == True:
-			objmonlist = self.parseobjmonstr(objmonstr)
-			newstate.objmonlist = objmonlist
-		status, hpmpstring = self.gethpmp(txt)
-		if status == True:
-			# print('hpmpstring:', hpmpstring)
-			hp, mp = self.parse_hpmpstr(hpmpstring)
-			newstate.hp = hp
-			newstate.mp = mp
-			'''
-			if newstate.hp < 50:
-				self.thread.action_from_parent = 'jump'
-				newstate.reward = self.reward
-			elif newstate.hp < 30:
-				self.thread.action_from_parent = 'bleed'
-				newstate.reward = self.reward
-			'''
-		status, delaystr = self.getdelaystr(txt)
-		if status == True:
-			newstate.delaystr = delaystr
-		status, hostile_str = self.get_hostile_str(txt)
-		if status == True:
-			newstate.hostile_str = hostile_str
-			print('hostile',hostile_str)
-
-		status, damage_str = self.got_hit_str(txt)
-		if status == True:
-			newstate.damage_str = damage_str
-			print('hostile', hostile_str)
-
-		status, expstr = self.get_experience(txt)
-		if status == True:
-			if self.oldExp == 0:  # not updated yet
-				self.oldExp = int(expstr)
-			elif self.oldExp > 0:
-				self.newExp = int(expstr)
-
-		status, killrewardstr = self.get_kill_reward(txt)
-		if status == True:
-			self.reward = self.reward + 150  # reward for killing a mosnter is big
-			newstate.reward = self.reward
-		#print('reward is: ', self.reward)
-		# print('last action is:',self.last_action)
-
-		status, hitrewardstr = self.get_hit_reward(txt)
-		# need to update hostile string here
-
-		if status == True:
-			#reward/penalty for engaging in combat
-			if newstate.hp < 50:
-				self.reward = self.reward - 50
-				newstate.reward=self.reward
-			elif newstate.hp > 90:
-				self.reward=self.reward + 40 * ((newstate.hp-90) / (35))
-				newstate.reward = self.reward
-			# 50 - 100 scaling penalty
-			elif newstate.hp < 90:
-				#goes from 0 to -5 as health decreases
-				self.reward = self.reward - 40*((90 - newstate.hp)/ (40))
-				newstate.reward = self.reward
-
-		status, monsterdiddamage = self.get_monsterhit_reward(txt)
-		if status == True:
-			newstate.hostilestr = monsterdiddamage
-			print('hostilestr', newstate.hostilestr)
-
-		status, monstermissstring = self.get_monstermiss_reward(txt)
-		#need to update hostile string here
-		if status == True:
-			newstate.hostilestr = monsterdiddamage
-			print('hostilestr',newstate.hostilestr)
-			# reward/penalty for engaging in combat
-			if newstate.hp < 50:
-				self.reward = self.reward - 50
-				newstate.reward = self.reward
-			elif newstate.hp > 80:
-				self.reward = self.reward + 40 * ((newstate.hp-80) / (35))
-				newstate.reward = self.reward
-			# 50 - 100 scaling penalty
-			elif newstate.hp < 80:
-				# goes from 0 to -5 as health decreases
-				self.reward = self.reward - 40 * ((80 - newstate.hp) /40)
-				newstate.reward = self.reward
-
-
-		# print('reward is: ', self.reward)
-		# print('last action is:',self.last_action)
-
-		status, movepenaltystr = self.get_move_penalty(txt)
-		if status == True:
-			self.reward = self.reward - 1#small negative rewar
-			newstate.reward = self.reward
-
-		status, nomonsterpenaltystr = self.get_nomonster_penalty(txt)
-		if status == True:
-			self.reward = self.reward  -1  # small negative rewar
-			newstate.reward = self.reward
-
-		status, killedstr = self.get_killed_penalty(txt)
-		if status == True:
-			self.reward = self.reward - 150  #negative penalty for dying
-			newstate.reward = self.reward
-
-		# give nice bonus for ticking
-		if newstate.room_name == 'Order of Love':
-			if newstate.hp < self.maxhp:
-				# print('should be getting a bonus, are we?')
-				self.reward = self.reward + (self.maxhp-newstate.hp)/43 +0.05 #big positive reward for ticking, modulated by differential
-				newstate.reward = self.reward
-			elif newstate.hp < 60:
-				self.reward = self.reward + 2
-				#self.thread.action_from_parent = 'jump'
-				newstate.reward = self.reward
-
-			elif newstate.hp == self.maxhp:
-				self.reward = self.reward -.1 #small negative reward for spending too much time in tick room
-				newstate.reward = self.reward
-
-		# give penalty for not  ticking
-		if newstate.room_name != 'Order of Love':
-			if newstate.hp < 60:
-
-				self.reward = self.reward #- (60-newstate.hp)/43 -0.05 #big neg reward for not ticking, modulated by differential
-				newstate.reward = self.reward
-
-
-
-		# state dictionary for reference below
-		# {'hp': 0, 'mp': 0, 'room_name': '', 'room_description': '', 'exits': [], 'objmonlist': [], 'delaystr': '',
-		# 'hostile_str': '', 'damage_str': '', 'reward': 0}
-
-		# return thenew state
-		return newstate
 
 	def parse_worldstate(self, txt):
 		# want to continuously parse and update the world state
@@ -1452,18 +1302,35 @@ class MudBotClient(QtWidgets.QWidget):
 		if status == True:
 			newstate.room_name = room_name
 
-		status, exitstr = self.get_exits_str(txt)
-		if status == True:
-			newstate.exits = self.parse_exits_str(exitstr)
-
 		status, room_description = self.get_room_description(txt)
 		if status == True:
 			newstate.room_description = room_description
+			# if we are seeing a room description, then also reset the objmonlist
+			newstate.objmonlist = []
+
+		status, exitstr = self.get_exits_str(txt)
+		if status == True:
+			newstate.exits = self.parse_exits_str(exitstr)
 
 		status, objmonstr = self.getobjmonstr(txt)
 		if status == True:
 			objmonlist = self.parseobjmonstr(objmonstr)
 			newstate.objmonlist = objmonlist
+			
+		status, newmonsterstr = self.new_monster_arrived(txt)
+		if status == True:
+			print(newmonsterstr,'Just arrived')
+			newstate.objmonlist.append(newmonsterstr)
+
+		status, monsterleftstr = self.monster_left(txt)
+		if status == True:
+			print(monsterleftstr,'MONSTER LEFT')
+			newstate.objmonlist.remove(monsterleftstr)
+
+		status, name_killed_monster = self.get_name_monster_killed(txt)
+		if status == True:
+			print(name_killed_monster, 'MONSTER KILLED')
+			newstate.objmonlist.remove(name_killed_monster)
 
 		status, hpmpstring = self.gethpmp(txt)
 		if status == True:
@@ -1491,6 +1358,7 @@ class MudBotClient(QtWidgets.QWidget):
 		status, killrewardstr = self.get_kill_reward(txt)
 		if status == True:
 			newstate.kill_monster_reward_string = killrewardstr
+			print('KILLED A MONSTER')
 			newstate.kill_monster_reward_flag = True
 
 		status, hitrewardstr = self.get_hit_reward(txt)
@@ -1527,6 +1395,13 @@ class MudBotClient(QtWidgets.QWidget):
 		hp = int(hpmpstring.split('H')[0])
 		mp = int(hpmpstring.split('H')[1].split('M')[0])
 		return hp, mp
+
+	def get_name_monster_killed(self, txt):
+		#ou hit for 6 damage.\n\rYou killed the rabbit.\n\rYou gained 10 experience for the death of the rabbit.\n\rThe rabbit was
+		start_indicator = '\\n\\rYou killed the '
+		end_indicator = '.\\n\\rYou gained'
+		status, kexpstr = self.pull_text(txt, start_indicator, end_indicator)
+		return status, kexpstr
 
 	def get_kill_reward(self, txt):
 		start_indicator = '\\n\\rYou gained'
@@ -1589,6 +1464,18 @@ class MudBotClient(QtWidgets.QWidget):
 		status, objmonstr = self.pull_text(txt, start_indicator, end_indicator)
 		return status, objmonstr
 
+	def new_monster_arrived(self,txt):
+		start_indicator = "A "
+		end_indicator = " just arrived"
+		status, objmonstr = self.pull_text(txt, start_indicator, end_indicator)
+		return status, objmonstr
+
+	def monster_left(self,txt):
+		start_indicator = "A "
+		end_indicator = " just wandered"
+		status, objmonstr = self.pull_text(txt, start_indicator, end_indicator)
+		return status, objmonstr
+
 	def parseobjmonstr(self, objmonstr):
 		objmondict = self.objmondict
 		objmonstr = objmonstr.replace('.', ' ')
@@ -1647,9 +1534,9 @@ class MudBotClient(QtWidgets.QWidget):
 		status = False
 		pullstring = ''
 		try:
-			start_ind = 0
-			end_ind = 0
-			name_end = indicator_end  # "\\n\\r\\n\\r\\x1b[37m"
+			#start_ind = 0
+			#end_ind = 0
+			#name_end = indicator_end  # "\\n\\r\\n\\r\\x1b[37m"
 			if txt.find(indicator_end) != -1:
 				if txt.find(indicator_start) != -1:
 					start_ind = txt.find(indicator_start) + len(indicator_start)
@@ -1757,18 +1644,18 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def evaluate_model_loss(self):
 		print('model loss called')
-		training_cycles = 5000
+		training_cycles = 2000
 		results = []
 		xparam = np.arange(training_cycles)
 		for i in np.arange(training_cycles):
-			batch_size = 20
+			batch_size = 4
 			samples = random.sample(self.modelthread.memory, batch_size)
 			# do this the slow way for now, vectorize later for speed
 			x_values = []
 			y_values = []
 			for sample in samples:
 				state, action, reward, new_state, done = sample
-				target = self.target_model.predict(state)
+				target = self.modelthread.target_model.predict(state)
 				x_values.append(state)
 				y_values.append(target)
 
@@ -1783,12 +1670,12 @@ class MudBotClient(QtWidgets.QWidget):
 			#print('stateshape',state.shape)
 			# print('targetshape',target.shape)
 			#print('made it here')
-			result = self.model.evaluate(x_values, y_values, verbose=0)
+			result = self.modelthread.model.evaluate(x_values, y_values, verbose=0)
 			results.append(result)
 			#print('append')
 			# now train model again
-			self.replay()
-			self.target_train()
+			self.modelthread.replay()
+			self.modelthread.target_train()
 		return xparam,results
 
 	def plot_model_loss(self):
@@ -1803,7 +1690,6 @@ class MudBotClient(QtWidgets.QWidget):
 			print('time to reset character, player in Limbo. Reset to Order')
 			self.world_state.room_name == 'Order of Love'
 			self.reset_player()
-			self.world_state.refresh_transient_flags()
 			self.world_state.room_name == 'Order of Love'
 			#self.initialize_world_state()
 		#print('resume event loop after reset')
@@ -1812,7 +1698,7 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def reset_player(self):
 		self.thread.pause()# set action loop to pause
-		save_enabled = True
+		save_enabled = self.save_enabled
 		if save_enabled:
 			print('calling save data and save model')
 			self.save_data()
@@ -1845,6 +1731,7 @@ class MudBotClient(QtWidgets.QWidget):
 	def tcpSocketReadyReadEmitted(self):
 		try:
 			if self.tcpSocket.isValid():
+
 				socket_data = self.tcpSocket.readAll()
 				txt = ''
 				try:
@@ -1855,6 +1742,7 @@ class MudBotClient(QtWidgets.QWidget):
 			elif not self.tcpSocket.isValid():
 				print('bro, not connected.')
 			self.display.append(self.cleanText(txt))  # clean text before displaying
+			#self.display.append(txt)
 			self.display.verticalScrollBar().setValue(self.display.verticalScrollBar().maximum())  # scroll to bottom
 		except:
 			print('------- tcpSocketReadyReadEmitted ----')
@@ -1874,17 +1762,19 @@ class MudBotClient(QtWidgets.QWidget):
 		oworld_state = self.world_state_history[-1]
 		old_old_world_state = self.world_state_history[-3]
 		old_old_old_world_state = self.world_state_history[-4]
-		#print('-4',old_old_old_world_state.state_to_string())
-		#print('-3',old_old_world_state.state_to_string())
+		print('-4',old_old_old_world_state.state_to_string())
+		print('-3',old_old_world_state.state_to_string())
 		print('-2',old_world_state.state_to_string())
-		#print('-1',oworld_state.state_to_string())
-		print('rwd',self.reward)
+		print('-1',oworld_state.state_to_string())
+		'''
+		print('rwd',self.reward,'eps',self.modelthread.epsilon,'step',self.step_counter)
 		#self.actiondict = ['none', 'north', 'east', 'south', 'west', 'killrabbit', 'killraccoon', 'look']
-		print(self.last_action)
+		#print(self.last_action)
 		#print('prv action',self.previous_action)
 		print('curr',self.world_state.state_to_string())
-		print('--------------------')
-		'''
+		print('encoded',self.encode_state(self.world_state))
+		#print('--------------------')
+		#'''
 		if len(self.state_array_history) > 2 * self.state_multiplier:
 			# print('generating curr adn old states')
 			curr_state_array = self.reshape_x_and_combine(self.state_array_history[-self.state_multiplier:],
@@ -1893,8 +1783,9 @@ class MudBotClient(QtWidgets.QWidget):
 				self.state_array_history[-2 * self.state_multiplier:-self.state_multiplier], self.state_multiplier)
 			action_index = self.actiondict.index(self.last_action[0])
 			reward_to_store = self.calculate_reward_from_state(old_world_state)
-			# reward_to_store = self.calculate_reward_from_state_simple(old_world_state)
+			#reward_to_store = self.calculate_reward_from_state_simple(old_world_state)
 			self.reward += reward_to_store
+
 			# print(self.reward)
 			# print('store memory')
 			self.store_memory(old_state_array,
@@ -1905,6 +1796,10 @@ class MudBotClient(QtWidgets.QWidget):
 
 	def advance_one_step(self):
 		try:
+			if self.step_counter < self.modelthread.steps_without_decay:
+					self.modelthread.epsilon_decay = self.modelthread.epsilon_decay_initial
+			elif self.step_counter >= self.modelthread.steps_without_decay:
+					self.modelthread.epsilon_decay = self.modelthread.epsilon_decay_final
 
 			if self.step_counter % self.train_interval == 0: #specified interval
 				if self.modelthread.training_allowed == True:
@@ -1918,12 +1813,10 @@ class MudBotClient(QtWidgets.QWidget):
 						print('could not run replay and target_train successfully')
 					self.thread.unpause() #resume actions
 
-				#Partially reset world state. Also partially reset last_action
-				#self.world_state.refresh_reward() no reward reset here
-			self.world_state.refresh_transient_flags()
 
-			self.previous_action = copy.deepcopy(self.last_action)
-			self.last_action = ['none'] #may want to drop this
+
+			#self.previous_action = copy.deepcopy(self.last_action)
+			#self.last_action = ['none'] #may want to drop this
 
 				# plot every n steps
 			if self.step_counter % 100 == 0:
@@ -1937,27 +1830,26 @@ class MudBotClient(QtWidgets.QWidget):
 				except:
 					print('could not plot')
 					#self.thread.eventState = 0  # resume action loop
-			self.step_counter += 1
+
 
 			#reset episode every n steps
-			reset_in_progress=True
+
 			if self.step_counter % self.steps_per_episode == 0:
 				print('Episode Step Limit Reached')
 				msg = 'say resetworld\n'
 				bmsg = msg.encode('utf-8')
 				self.write_socket(QtCore.QByteArray(bmsg))
+				reset_in_progress = True
 				while reset_in_progress:
 					try:
-
-							#reset player
-
+						#reset player
 						self.thread.pause()
 						self.reset_player()
 						self.world_state.refresh_transient_flags()
-						self.world_state_history=self.world_state_history[-2*self.state_multiplier:-1*self.state_multiplier]
-						self.state_array_history=self.state_array_history[-2*self.state_multiplier:-1*self.state_multiplier]
+						#self.world_state_history=self.world_state_history[-2*self.state_multiplier:-1*self.state_multiplier]
+						#self.state_array_history=self.state_array_history[-2*self.state_multiplier:-1*self.state_multiplier]
 						self.world_state = Worldstate()
-						self.state_array = self.encode_state(self.world_state)
+						#self.state_array = self.encode_state(self.world_state)
 					#	self.world_state = Worldstate()
 						self.reward = 0
 							#self.epsilon = self.epsilon_start
@@ -1981,7 +1873,7 @@ class MudBotClient(QtWidgets.QWidget):
 						self.epsilon = self.epsilon_star
 						print('updated epsilon')'''
 					#self.step_counter =
-
+			self.step_counter += 1
 			self.thread.pause()
 			self.check_if_reset_needed()  # check if player needs a reset, and if so apply reset
 
