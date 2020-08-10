@@ -1,1 +1,5 @@
 theme: jekyll-theme-minimal
+description: deep_in_mud is a ddqn for text-based environments
+show_downloads: true
+google_analytics:
+theme: jekyll-theme-minimal
