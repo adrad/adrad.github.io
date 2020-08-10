@@ -6,7 +6,7 @@ Mnih, V., Kavukcuoglu, K., Silver, D., Graves, A., Antonoglou, I., Wierstra, D.,
 
 ## Setup 
 
-One of the fastest ways to get setup is to use conda, and to load the conda environment alphamud.yml. You may need to re-isntall tensorflow for a version optimized for your particular cpu/gpu setup. 
+If using conda, load the conda environment alphamud.yml. You may decide to change tensorflow to a version optimized for your particular cpu/gpu setup. 
 
 ## Usage 
 
