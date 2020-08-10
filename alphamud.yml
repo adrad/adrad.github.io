@@ -1,11 +1,12 @@
 name: alphamud
 channels:
   - pytorch
-  - conda-forge
   - anaconda
+  - conda-forge
+  - intel
   - defaults
 dependencies:
-  - _tflow_select=2.2.0=eigen
+  - _tflow_select=2.3.0=mkl
   - absl-py=0.9.0=py36_0
   - astor=0.8.0=py36_0
   - attrs=19.3.0=py_0
@@ -16,9 +17,9 @@ dependencies:
   - boto3=1.13.2=pyh9f0ad1d_0
   - botocore=1.16.2=pyh9f0ad1d_0
   - brotlipy=0.7.0=py36h779f372_1000
-  - ca-certificates=2020.6.24=0
+  - ca-certificates=2020.6.20=hecda079_0
   - cachetools=3.1.1=py_0
-  - certifi=2020.6.20=py36_0
+  - certifi=2020.6.20=py36h9f0ad1d_0
   - cffi=1.14.0=py36ha419a9e_0
   - chardet=3.0.4=py36_1003
   - click=7.1.2=pyh9f0ad1d_0
@@ -61,6 +62,7 @@ dependencies:
   - keras-applications=1.0.8=py_0
   - keras-base=2.3.1=py36_0
   - keras-preprocessing=1.1.0=py_1
+  - kiwisolver=1.2.0=py36h74a9793_0
   - libpng=1.6.37=h2a8f88b_0
   - libprotobuf=3.11.4=h7bd577a_0
   - libsodium=1.0.16=h9d3ae62_0
@@ -72,6 +74,7 @@ dependencies:
   - m2w64-libwinpthread-git=5.0.0.4634.697f757=2
   - markdown=3.1.1=py36_0
   - markupsafe=1.1.1=py36he774522_0
+  - matplotlib-base=3.2.2=py36h64f37c6_0
   - mistune=0.8.4=py36he774522_0
   - mkl=2020.0=166
   - mkl-service=2.3.0=py36hb782905_0
@@ -114,6 +117,7 @@ dependencies:
   - python-dateutil=2.8.1=py_0
   - python_abi=3.6=1_cp36m
   - pytorch=1.5.0=py3.6_cpu_0
+  - pytz=2020.1=py_0
   - pywin32=227=py36he774522_1
   - pywinpty=0.5.7=py36_0
   - pyzmq=18.1.1=py36ha925a31_0
@@ -127,15 +131,17 @@ dependencies:
   - s3transfer=0.3.3=py36h9f0ad1d_1
   - sacremoses=0.0.41=pyh9f0ad1d_0
   - scipy=1.4.1=py36h9439919_0
+  - seaborn=0.10.1=py_0
   - send2trash=1.5.0=py36_0
   - setuptools=46.1.3=py36_0
   - sip=4.19.8=py36h6538335_0
   - six=1.14.0=py36_0
   - sqlite=3.31.1=h2a8f88b_1
-  - tensorboard=2.1.0=py3_0
-  - tensorflow=2.1.0=eigen_py36hdbbabfe_0
+  - tensorboard=1.10.0=py36_0
+  - tensorflow=1.10.0=py36_0
   - tensorflow-base=2.1.0=eigen_py36h49b2757_0
   - tensorflow-estimator=2.1.0=pyhd54b08b_0
+  - tensorflow-mkl=1.10.0=h067cd57_0
   - termcolor=1.1.0=py36_1
   - terminado=0.8.3=py36_0
   - testpath=0.4.4=py_0
@@ -163,19 +169,21 @@ dependencies:
   - zlib=1.2.11=h62dcd97_4
   - zstd=1.3.7=h508b16e_0
   - pip:
+    - cloudpickle==1.3.0
     - cycler==0.10.0
     - dataclasses==0.7
     - filelock==3.0.12
+    - future==0.18.2
+    - gym==0.17.2
     - jupyterthemes==0.20.0
     - keras==2.3.1
-    - kiwisolver==1.2.0
     - lesscpy==0.14.0
     - matplotlib==3.2.1
     - pandas==1.0.3
     - ply==3.11
     - protobuf==3.11.3
+    - pyglet==1.5.0
     - pyside2==5.14.2.1
-    - pytz==2020.1
     - pyyaml==5.3.1
     - scikit-learn==0.22.2.post1
     - sentencepiece==0.1.86
