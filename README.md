@@ -1,8 +1,8 @@
 # deep_in_mud
 
-*deep_in_mud is a project demonstrating reinforcement learning for text-based environments. The project is based off of Deepmind's Atari demonstration. 
+deep_in_mud is a project demonstrating reinforcement learning for text-based environments. The project is based off of Deepmind's Atari demonstration. 
 
-'''Mnih, V., Kavukcuoglu, K., Silver, D., Graves, A., Antonoglou, I., Wierstra, D., & Riedmiller, M. (2013). Playing atari with deep reinforcement learning. arXiv preprint arXiv:1312.5602.'''
+Mnih, V., Kavukcuoglu, K., Silver, D., Graves, A., Antonoglou, I., Wierstra, D., & Riedmiller, M. (2013). Playing atari with deep reinforcement learning. arXiv preprint arXiv:1312.5602
 
 ## Setup 
 
